@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.3.7-3"
+#define CODE_VERSION "V26.3.7-4"
 
 /*
 
@@ -623,28 +623,29 @@ void displayIlsState(void) {
 
 // Print help message
 void printHelp(void) {
-    Serial.print(F(ILS_ACTIVATION1_COMMAND)); Serial.println(F("1-10 : ILS 1 (numéro)"));
-    Serial.print(F(ILS_ACTIVATION2_COMMAND)); Serial.println(F("0-10 : ILS 2 (numéro)"));
-    Serial.print(F(ILS_ACTIVATION3_COMMAND)); Serial.println(F("0-10 : ILS 3 (numéro)"));
-    Serial.print(F(RELAY_PULSE_DURATION_COMMAND)); Serial.println(F("1-999 : Durée Impulsion relai (ms)"));
-    Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.println(F("1-9999 : Durée Remplissage wagon (ms)"));
+    Serial.print(F(ILS_ACTIVATION1_COMMAND)); Serial.print(F("1-10 : ILS 1 (numéro) => ")); Serial.println(data.activationIls1);
+    Serial.print(F(ILS_ACTIVATION2_COMMAND)); Serial.print(F("0-10 : ILS 2 (numéro) => ")); Serial.println(data.activationIls2);
+    Serial.print(F(ILS_ACTIVATION3_COMMAND)); Serial.print(F("0-10 : ILS 3 (numéro) => ")); Serial.println(data.activationIls3);
+    Serial.print(F(RELAY_PULSE_DURATION_COMMAND)); Serial.print(F("1-999 : Durée Impulsion relai (ms) => ")); Serial.println(data.pulseTime);
     #ifdef VIBRATION_RELAY
-        Serial.print(F(LOAD_DELAY_COMMAND)); Serial.println(F("0-9999 : Vibrations Remplissage (ms)"));
-        Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.println(F("0-9999 : Vibrations Vidage (ms)"));
-        Serial.print(F(RECLOSE_DELAY_COMMAND)); Serial.println(F("0-9999 : Répétition fermeture (ms)"));
+        Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.print(F("1-9999 : Durée Remplissage wagon (ms) => ")); Serial.println();
+        Serial.print(F(LOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Vibrations Remplissage (ms) => ")); Serial.println(data.loadDelay);
+        Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Retard Vidage vibration (ms) => ")); Serial.println(data.unloadDelay);
+        Serial.print(F(RECLOSE_DELAY_COMMAND)); Serial.print(F("0-9999 : Répétition fermeture (ms) => ")); Serial.println(data.repeatCloseDelay);
     #endif
-    Serial.print(F(WAIT_AFTER_STOP_COMMAND)); Serial.println(F("0-9999 : Attente après Arrêt (ms)"));
-    Serial.print(F(WAIT_AFTER_FILL_COMMAND)); Serial.println(F("0-9999 : Attente après remplissage (ms)"));
-    Serial.print(F(START_COMMAND)); Serial.println(F(" : Marche"));
-    Serial.print(F(STOP_COMMAND)); Serial.println(F(" : Arrêt"));
-    Serial.print(F(EMERGENCY_COMMAND)); Serial.println(F(" : arrêt d'Urgence"));
-    Serial.print(F(ILS_STATE_COMMAND)); Serial.println(F(" : Etat ILS"));
-    Serial.print(F(OPEN_RELAY_COMMAND)); Serial.println(F(" : Ouverture trémie"));
-    Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.println(F(" : Fermeture trémie"));
-    Serial.print(F(STOP_TRAIN_COMMAND)); Serial.println(F(" : Arrêt du train"));
-    Serial.print(F(START_TRAIN_COMMAND)); Serial.println(F(" : Démarrage du train"));
-    Serial.print(F(DEBUG_TOGGLE_COMMAND)); Serial.println(F(" : Bascule déverminage"));
-    Serial.print(F(DISPLAY_VARIABLES_COMMAND)); Serial.println(F(" : Affiche variables"));
+    Serial.print(F(WAIT_AFTER_STOP_COMMAND)); Serial.print(F("0-9999 : Attente après Arrêt (ms) => ")); Serial.println(data.waitAfterStop);
+    Serial.print(F(WAIT_AFTER_FILL_COMMAND)); Serial.print(F("0-9999 : Attente après remplissage (ms) => ")); Serial.println(data.waitAfterFill);
+    Serial.print(F(START_COMMAND)); Serial.print(F(" : Marche")); Serial.println();
+    Serial.print(F(STOP_COMMAND)); Serial.print(F(" : Arrêt")); Serial.println();
+    Serial.print(F(EMERGENCY_COMMAND)); Serial.print(F(" : arrêt d'Urgence")); Serial.println();
+    Serial.print(F(ILS_STATE_COMMAND)); Serial.print(F(" : Etat ILS")); Serial.println();
+    Serial.print(F(OPEN_RELAY_COMMAND)); Serial.print(F(" : Ouverture trémie")); Serial.println();
+    Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.print(F(" : Fermeture trémie")); Serial.println();
+    Serial.print(F(STOP_TRAIN_COMMAND)); Serial.print(F(" : Arrêt du train")); Serial.println();
+    Serial.print(F(START_TRAIN_COMMAND)); Serial.print(F(" : Démarrage du train")); Serial.println();
+    Serial.print(F(DEBUG_TOGGLE_COMMAND)); Serial.print(F(" : Bascule déverminage")); Serial.println();
+    Serial.print(F(INIT_COMMAND)); Serial.print(F(" : Initialisation globale")); Serial.println();
+    Serial.print(F(DISPLAY_VARIABLES_COMMAND)); Serial.print(F(" : Afficher variables")); Serial.println();
     Serial.print(F(INIT_COMMAND)); Serial.println(F(" : Initialisation globale"));
 }
 
