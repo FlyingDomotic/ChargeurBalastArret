@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.3.7-1"
+#define CODE_VERSION "V26.3.7-2"
 
 /*
 
@@ -71,6 +71,8 @@ Commandes :
     - U : arrêt d'urgence (ferme la trémie, arrêt du processus, des vibrations et du train)
     - O : Ouverture trémie
     - F : Fermeture trémie
+    - AT : Arrêt Train
+    - DT : Démarrage Train
     - D : Bascule déverminage
     - AV : Afficher variables
     - INIT : Initialisation globale
@@ -140,6 +142,8 @@ Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 #define ILS_STATE_COMMAND "E"
 #define OPEN_RELAY_COMMAND "O"
 #define CLOSE_RELAY_COMMAND "F"
+#define STOP_TRAIN_COMMAND "AT"
+#define START_TRAIN_COMMAND "DT"
 #define DEBUG_TOGGLE_COMMAND "D"
 #define INIT_COMMAND "INIT"
 #define DISPLAY_VARIABLES_COMMAND "AV"
@@ -636,6 +640,8 @@ void printHelp(void) {
     Serial.print(F(ILS_STATE_COMMAND)); Serial.println(F(" : Etat ILS"));
     Serial.print(F(OPEN_RELAY_COMMAND)); Serial.println(F(" : Ouverture trémie"));
     Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.println(F(" : Fermeture trémie"));
+    Serial.print(F(STOP_TRAIN_COMMAND)); Serial.println(F(" : Arrêt du train"));
+    Serial.print(F(START_TRAIN_COMMAND)); Serial.println(F(" : Démarrage du train"));
     Serial.print(F(DEBUG_TOGGLE_COMMAND)); Serial.println(F(" : Bascule déverminage"));
     Serial.print(F(DISPLAY_VARIABLES_COMMAND)); Serial.println(F(" : Affiche variables"));
     Serial.print(F(INIT_COMMAND)); Serial.println(F(" : Initialisation globale"));
@@ -676,6 +682,10 @@ void executeCommand(void) {
         stopFilling();
     } else if (isCommand(inputBuffer, (char*) EMERGENCY_COMMAND)) {
         emergencyStop();
+    } else if (isCommand(inputBuffer, (char*) START_TRAIN_COMMAND)) {
+        startTrain();
+    } else if (isCommand(inputBuffer, (char*) STOP_TRAIN_COMMAND)) {
+        stopTrain();
     } else if (isCommand(inputBuffer, (char*) DEBUG_TOGGLE_COMMAND)) {
         toggleDebug();
     } else if (isCommand(inputBuffer, (char*) DISPLAY_VARIABLES_COMMAND)) {
