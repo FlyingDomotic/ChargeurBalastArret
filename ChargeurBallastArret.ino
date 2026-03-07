@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.3.5-1"
+#define CODE_VERSION "V26.3.7-1"
 
 /*
 
@@ -68,11 +68,19 @@ Commandes :
     - M : Marche (détection passage wagon activée)
     - A : Arrêt (stoppe la détection des wagons)
     - E : Etat ILS
+    - U : arrêt d'urgence (ferme la trémie, arrêt du processus, des vibrations et du train)
     - O : Ouverture trémie
     - F : Fermeture trémie
     - D : Bascule déverminage
     - AV : Afficher variables
     - INIT : Initialisation globale
+
+Appui sur <ESC> (parfois marquée Escape ou Echap.)
+    - Arrêt d'urgence :
+        - Arrêt du processus
+        - Ferme la trémie
+        - Arrête les vibrations
+        - Arrête le train
 
 Example:
     I15     Start loading on ILS 5
@@ -128,6 +136,7 @@ Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 #define WAIT_AFTER_FILL_COMMAND "AR"
 #define START_COMMAND "M"
 #define STOP_COMMAND "A"
+#define EMERGENCY_COMMAND "U"
 #define ILS_STATE_COMMAND "E"
 #define OPEN_RELAY_COMMAND "O"
 #define CLOSE_RELAY_COMMAND "F"
@@ -233,6 +242,7 @@ void saveSettings(void);                                            // Save sett
 void initSettings(void);                                            // Init settings to default values
 void resetInputBuffer(void);                                        // Reset serial input buffer
 void initIO(void);                                                  // Init IO pins
+void emergencyStop(void);                                           // Emergency stop
 void workWithSerial(void);                                          // Work with Serial input
 bool isCommand(char* inputBuffer, char* commandToCheck);            // Check command without value
 bool isCommandValue(char* inputBuffer, char* commandToCheck, uint16_t minValue, uint16_t maxValue); // Check command with value
@@ -400,6 +410,53 @@ void initIO(void) {
     setRelay(CLOSE_RELAY, RELAY_CLOSED);
     delay(100);
     setRelay(CLOSE_RELAY, RELAY_OPENED);
+}
+
+// Emergency stop
+void emergencyStop(void) {
+    // Arrêt du relai d'ouverture de la trémie
+    digitalWrite(relayPinMapping[OPEN_RELAY], RELAY_OPENED);
+
+    // Arrêt du train
+    digitalWrite(relayPinMapping[POWER_ISOLATION_RELAY], RELAY_CLOSED);
+
+    // Arrêt des vibrations
+    digitalWrite(relayPinMapping[VIBRATION_RELAY], RELAY_OPENED);
+
+    // Armement du relai de fermeture de la trémie
+    digitalWrite(relayPinMapping[CLOSE_RELAY], RELAY_CLOSED);
+    delay(100);
+
+    // Arrêt du relai de fermeture de la trémie
+    digitalWrite(relayPinMapping[CLOSE_RELAY], RELAY_OPENED);
+
+    // Reset variables and timers
+    data.isActive = false;
+
+    // State machine
+    stateMachine = waitForWagon;                                    // Reset state machine
+    waitAfterStopTimer = 0;                                         // Timers for each state
+    waitFilledTimer = 0;
+    waitAfterFillingTimer = 0;
+    waitForIlsClosedTimer = 0;
+
+    // Relay pulse
+    relayPulseActive = false;                                       // Relay pulse active flag
+    relayPulseTimer = 0;                                            // Relay pulse start time
+
+    // Vibrations
+    #ifdef VIBRATION_RELAY
+        fillingVibrationActive = false;                             // Vibrations during wagon filling flag
+        unloadingVibrationActive = false;                           // Vibrations during wagon unloading flag
+        fillingVibrationTimer = 0;                                  // Vibrations during filling timer
+        unloadingVibrationTimer = 0;                                // Vibrations during unloading timer
+
+        // Repeat close during vibrations
+        repeatCloseActive = false;                                  // Repeat close during vibrations flag
+        repeatCloseTimer = 0;                                       // Repeat close during vibrations timer
+    #endif
+
+    doorOpened = false;                                             // Door is closed
 }
 
 // Work with Serial input
@@ -575,6 +632,7 @@ void printHelp(void) {
     Serial.print(F(WAIT_AFTER_FILL_COMMAND)); Serial.println(F("0-9999 : Attente après remplissage (ms)"));
     Serial.print(F(START_COMMAND)); Serial.println(F(" : Marche"));
     Serial.print(F(STOP_COMMAND)); Serial.println(F(" : Arrêt"));
+    Serial.print(F(EMERGENCY_COMMAND)); Serial.println(F(" : arrêt d'Urgence"));
     Serial.print(F(ILS_STATE_COMMAND)); Serial.println(F(" : Etat ILS"));
     Serial.print(F(OPEN_RELAY_COMMAND)); Serial.println(F(" : Ouverture trémie"));
     Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.println(F(" : Fermeture trémie"));
@@ -616,6 +674,8 @@ void executeCommand(void) {
     } else if (isCommand(inputBuffer, (char*) STOP_COMMAND)) {
         data.isActive = false;
         stopFilling();
+    } else if (isCommand(inputBuffer, (char*) EMERGENCY_COMMAND)) {
+        emergencyStop();
     } else if (isCommand(inputBuffer, (char*) DEBUG_TOGGLE_COMMAND)) {
         toggleDebug();
     } else if (isCommand(inputBuffer, (char*) DISPLAY_VARIABLES_COMMAND)) {
