@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.3.7-2"
+#define CODE_VERSION "V26.3.7-3"
 
 /*
 
@@ -159,9 +159,9 @@ Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 #define DISPLAY_ILS_TIME 100                                        // Display ILS state every xxx ms
 #define OPEN_RELAY 0                                                // Index of open relay into relayPinMapping
 #define CLOSE_RELAY 1                                               // Index of close relay into relayPinMapping
-#define VIBRATION_RELAY 2                                           // Index of vibration relay into relayPinMapping
+#define VIBRATION_RELAY 2                                           // Index of vibration relay into relayPinMapping (do not define in no vibration relay)
 #define POWER_ISOLATION_RELAY 3                                     // Index of power isolation relay into relayPinMapping
-#define DISPLAY_KEYBOARD_INPUT                                      // Display each character read on keyboard
+#define DISPLAY_KEYBOARD_INPUT                                      // Display each character read on keyboard (do not define if not needed)
 
 // EEPROM data (current version)
 struct eepromData_s {
@@ -474,12 +474,13 @@ void workWithSerial(void) {
     while (Serial.available()) {
         // Read one character
         char c = Serial.read();
-        // Is this a return?
-        if (c == 13) {
+        if (c == 13) {                                              // Is this a return?
             Serial.print(c);
             executeCommand();
             resetInputBuffer();
-        } else if (c) {
+        } else if (c == 27) {                                       // Is this an <ESC>?
+            emergencyStop();
+        } else if (c) {                                             // Is this not null?
             // Keep only "A" to "Z", "a" to "z" and "0" to "9"
             if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
                 if (bufferLen >= BUFFER_LENGHT - 1) {
@@ -487,7 +488,7 @@ void workWithSerial(void) {
                     resetInputBuffer();
                 }
                 inputBuffer[bufferLen++] = c;
-            } else if (c == 8) {                                  // Is this <backspace> character?
+            } else if (c == 8) {                                    // Is this <backspace> character?
                 if (bufferLen) {                                    // Is buffer not empty?
                     bufferLen--;                                    // Reduce buffer len
                     inputBuffer[bufferLen] = 0;                     // Remove charcater
