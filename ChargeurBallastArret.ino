@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.2.19-1"
+#define CODE_VERSION "V26.3.5-1"
 
 /*
 
@@ -58,21 +58,53 @@ Commandes :
     - I11-10 : ILS 1 (numéro)
     - I20-10 : ILS 2 (numéro)
     - I30-10 : ILS 3 (numéro)
-    - DI1-999 : Durée Impulsion relai (ms)
+    - DI1-999 : Durée Impulsion relais (ms)
     - DR1-9999 : Durée Remplissage wagon (ms)
-    - RR0-9999 : Retard Remplissage vibrations (ms)
-    - RV0-9999 : Retard Vidage vibration (ms)
+    - VR0-9999 : Vibrations Remplissage (ms)
+    - VV0-9999 : Vibrations Vidage (ms)
     - RF0-9999 : Répétition fermeture (ms)
     - AA0-9999 : Attente après Arrêt (ms)
     - AR0-9999 : Attente après remplissage (ms)
-    - M : Marche
-    - A : Arrêt
+    - M : Marche (détection passage wagon activée)
+    - A : Arrêt (stoppe la détection des wagons)
     - E : Etat ILS
     - O : Ouverture trémie
     - F : Fermeture trémie
     - D : Bascule déverminage
     - AV : Afficher variables
     - INIT : Initialisation globale
+
+Example:
+    I15     Start loading on ILS 5
+    DI100   Relay pulse duration = 100 ms
+    DR2000  Filling duration = 2 s
+    AA3000  Wait after train stop before starting loading wagon = 3 s
+    AR3000  Wait after wagon loading before restarting train = 3 s
+    VR5000  Continue vibration after filling process for 5 s
+    VV5000  Continue vibration during unloading process for 5 s
+    RF1000  Repeat door close every second during vibrations
+
+Principles:
+    State machine:
+        State -> Action -> Timer armed
+        waitForWagon -> trainStoped -> waitAfterStopTimer
+        waitingAfterStop -> startFilling -> waitFilledTimer
+        waitFilled -> stopFilling -> waitAfterFillingTimer
+        waitAfterFilling -> trainStarting -> waitForWagon
+
+    Relay pulse:
+        Event -> Action
+        Closing door relay -> start pulse timer
+        Pulse timer expired -> reset relays
+
+    Vibration relay:
+        Opening door -> arm filling vibration timer
+        Wagon unloading detected -> arm unloading vibration timer
+        FillingVibrationExpired && loadingVibrationExpired -> stop vibration & deactivate repeat close timer
+
+    Repeat close during vibration:
+        Start vibration -> arm repeat close timer
+        Repeat close timer expired -> force close door & rearm timer
 
 Auteur : Flying Domotic, Février 2025, pour le FabLab
 Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
@@ -89,8 +121,8 @@ Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 #define ILS_ACTIVATION3_COMMAND "I3"
 #define RELAY_PULSE_DURATION_COMMAND "DI"
 #define WAGON_FILL_DURATION_COMMAND "DR"
-#define LOAD_DELAY_COMMAND "RR"
-#define UNLOAD_DELAY_COMMAND "RV"
+#define LOAD_DELAY_COMMAND "VR"
+#define UNLOAD_DELAY_COMMAND "VV"
 #define RECLOSE_DELAY_COMMAND "RF"
 #define WAIT_AFTER_STOP_COMMAND "AA"
 #define WAIT_AFTER_FILL_COMMAND "AR"
@@ -136,24 +168,55 @@ struct eepromData_s {
     uint16_t waitAfterFill;                                         // Duration (ms) to wait after filling to restart train
 };
 
-
 bool displayIls = false;                                            // When set, continously display ILS state
 uint8_t ilsPinMapping[] = {4, 5, 6, 7, A5, A4, A3, A2, A1, A0, 2};  // Maps ILS number to Arduino PIN number
 uint8_t relayPinMapping[] = {12, 11, 10, 9};                        // Maps relay number to Arduino PIN number
 uint8_t relayState[] = {0, 0, 0, 0};                                // Relay current state
 
 // Data
-unsigned long fillingStartTime = 0;                                 // Filling start time (0 if none)
-unsigned long fillingEndTime = 0;                                   // Filling end time (0 if none)
-unsigned long relayPulseTime = 0;                                   // Relay plusing start time
-unsigned long lastIlsDisplay = 0;                                   // Last time we displayed ILS
-unsigned long isolationCloseTime = 0;                               // Last time isolation relay closed
-unsigned long isolationOpenTime = 0;                                // Last time isolation relay open wait
+
+// State machine
+enum stateMachineEnum {
+    waitForWagon = 0,                                               // Waiting for wagon over ILS to stop train
+    waitingAfterStop,                                               // Waiting after train stop before opening door
+    waitFilled,                                                     // Waiting for wagon filled to close door
+    waitAfterFilling                                                // Waiting after closing door before restarting train
+};
+
+stateMachineEnum stateMachine = waitForWagon;                       // State machine index
+unsigned long waitAfterStopTimer = 0;                               // Timers for each state
+unsigned long waitFilledTimer = 0;
+unsigned long waitAfterFillingTimer = 0;
+unsigned long waitForIlsClosedTimer = 0;
+
+// Relay pulse
+bool relayPulseActive = false;                                      // Relay pulse active flag
+unsigned long relayPulseTimer = 0;                                  // Relay pulse start time
+
+// Vibrations
 #ifdef VIBRATION_RELAY
-    unsigned long repeatCloseTime = 0;                              // Force to repeat close during vibration
-    unsigned long vibrationLoadTime = 0;                            // Last vibration load time
-    unsigned long vibrationUnloadTime = 0;                          // Last vibration unload time
+	bool fillingVibrationActive = false;                            // Vibrations during wagon filling flag
+	bool unloadingVibrationActive = false;                          // Vibrations during wagon unloading flag
+	unsigned long fillingVibrationTimer = 0;                        // Vibrations during filling timer
+	unsigned long unloadingVibrationTimer = 0;                      // Vibrations during unloading timer
+
+    // Repeat close during vibrations
+    bool repeatCloseActive = false;                                 // Repeat close during vibrations flag
+    unsigned long repeatCloseTimer = 0;                             // Repeat close during vibrations timer
 #endif
+
+// Debouncer
+struct debouncer_s {                                                // Debouncer data for one pin
+    uint8_t dataIndex;                                              // Pin index to scan
+    bool isClosed;                                                  // ILS is currently closed
+    bool lastWasClosed;                                             // ILS was closed at preivous loop
+    unsigned long lastChangeTime;                                   // Last time pin state changed
+};
+
+debouncer_s debouncer[4];                                           // Debouncer for 3 filling ILS and 1 unloading ILS
+
+// Other data
+unsigned long lastIlsDisplay = 0;                                   // Last time we displayed ILS state
 uint16_t commandValue;                                              // Value extracted from command
 uint8_t bufferLen = 0;                                              // Used chars in input buffer
 char inputBuffer[BUFFER_LENGHT];                                    // Serial input buffer
@@ -162,7 +225,8 @@ eepromData_s data;                                                  // Data stor
 
 // Routines and functions
 
-unsigned long getMillis(void);                                      // Millis() implementation never returning 0
+void loadIls(uint8_t index, uint8_t pin_index);                     // Load one debounce table ILS
+void reloadIls(void);                                               // Reload ILS from data
 void displayStatus(void);                                           // Display current status
 void loadSettings(void);                                            // Load settings from EEPROM
 void saveSettings(void);                                            // Save settings to EEPROM (only if modified)
@@ -173,11 +237,11 @@ void workWithSerial(void);                                          // Work with
 bool isCommand(char* inputBuffer, char* commandToCheck);            // Check command without value
 bool isCommandValue(char* inputBuffer, char* commandToCheck, uint16_t minValue, uint16_t maxValue); // Check command with value
 void startFilling(void);                                            // Start filling
-void stopFilling(unsigned long now);                                // Stop filling
+void stopFilling(void);                                             // Stop filling
 void stopTrain(void);                                               // Stop train
 void startTrain(void);                                              // Start train
 #ifdef VIBRATION_RELAY
-    void startUnloading(unsigned long now);                                      // Start unloading process
+    void startUnloading(void);                                      // Start unloading process
     void startVibration(void);                                      // Start vibration relay
     void stopVibration(void);                                       // Stop vibration relay
 #endif
@@ -191,42 +255,56 @@ void setRelay(uint8_t pin, uint8_t state);                          // Change a 
 void setup(void);                                                   // Setup
 void loop(void);                                                    // Main loop
 
-// millis() implementation never returning 0
-unsigned long getMillis(void){
-    unsigned long now = millis();
-    if (!now) now++;                                                // Avoid lillis() un setup returning 0 (or at overflow)
-    return now;
+// Reload ILS debounce table from data
+void reloadIls(void){
+    loadIls(0, data.activationIls1);
+    loadIls(1, data.activationIls2);
+    loadIls(2, data.activationIls3);
+    loadIls(3, 10+1);
+}
+
+// Load one debounce table ILS
+void loadIls(uint8_t index, uint8_t pin_index) {
+    if (debouncer[index].dataIndex != pin_index) {              // Do it only if changed
+        debouncer[index].dataIndex = pin_index;                 // Load pin index
+        debouncer[index].lastChangeTime = millis();             // Save change time
+        if (debouncer[index].dataIndex) {                       // If pin index defined, read current value and save it
+            debouncer[index].isClosed = digitalRead(ilsPinMapping[debouncer[index].dataIndex-1]) == ILS_CLOSED;
+            debouncer[index].lastWasClosed = debouncer[0].isClosed;
+        }
+    }
 }
 
 // Display current status
 void displayStatus(void) {
     Serial.print(F(ILS_ACTIVATION1_COMMAND));
     Serial.print(data.activationIls1);
-    Serial.print(F(" "));
     if (data.activationIls2) {
+        Serial.print(F(" "));
         Serial.print(F(ILS_ACTIVATION2_COMMAND));
         Serial.print(data.activationIls2);
         Serial.print(F(" "));
     }
     if (data.activationIls3) {
+        Serial.print(F(" "));
         Serial.print(F(ILS_ACTIVATION3_COMMAND));
         Serial.print(data.activationIls3);
-        Serial.print(F(" "));
     }
+    Serial.print(F(" "));
     Serial.print(F(RELAY_PULSE_DURATION_COMMAND));
     Serial.print(data.pulseTime);
     Serial.print(F(" "));
     Serial.print(F(WAGON_FILL_DURATION_COMMAND));
     Serial.print(data.fillingTime);
     if (data.waitAfterStop) {
+        Serial.print(F(" "));
         Serial.print(F(WAIT_AFTER_STOP_COMMAND));
         Serial.print(data.waitAfterStop);
-        Serial.print(F(" "));
     }
     if (data.waitAfterFill) {
+        Serial.print(F(" "));
         Serial.print(F(WAIT_AFTER_FILL_COMMAND));
         Serial.print(data.waitAfterFill);
-        Serial.print(F(" "));
     }
     #ifdef VIBRATION_RELAY
         if (data.loadDelay) {
@@ -290,15 +368,15 @@ void initSettings(void) {
     data.activationIls1 = 0;                                        // ILS number 1 to activate filling
     data.activationIls2 = 0;                                        // ILS number 1 to activate filling
     data.activationIls3 = 0;                                        // ILS number 1 to activate filling
-    data.fillingTime = 0;                                           // Time to fill wagon
+    data.fillingTime = 2000;                                        // Time to fill wagon
     data.pulseTime = 100;                                           // Time to send current to relay
     data.isActive = false;                                          // When active flag is true, relays are triggered by ILS
     data.inDebug = false;                                           // Print debug message when true
-    data.loadDelay = 0;                                             // Keep vibrations after load
-    data.unloadDelay = 0;                                           // Keep vibrations after unload
-    data.repeatCloseDelay = 0;                                      // Force close relay when vibration active and door closed
-    data.waitAfterStop = 0;                                         // Delay between stop and fill
-    data.waitAfterFill = 0;                                         // Delay between fill and start
+    data.loadDelay = 1000;                                          // Keep vibrations after load
+    data.unloadDelay = 5000;                                        // Keep vibrations after unload
+    data.repeatCloseDelay = 1000;                                   // Force close relay when vibration active and door closed
+    data.waitAfterStop = 1000;                                      // Delay between stop and fill
+    data.waitAfterFill = 1000;                                      // Delay between fill and start
 }
 
 // Reset serial input buffer
@@ -318,6 +396,10 @@ void initIO(void) {
         setRelay(i, RELAY_OPENED);
         pinMode(relayPinMapping[i], OUTPUT);
     }
+    // Force activating close relay for 100 ms (preferences not yet loaded, user set pulse length not defined)
+    setRelay(CLOSE_RELAY, RELAY_CLOSED);
+    delay(100);
+    setRelay(CLOSE_RELAY, RELAY_OPENED);
 }
 
 // Work with Serial input
@@ -386,49 +468,43 @@ bool isCommandValue(char* inputBuffer, char* commandToCheck, uint16_t minValue, 
 }
 
 //  Stop train
-void stopTrain() {
-    // Close isolation relay
-    setRelay(POWER_ISOLATION_RELAY, RELAY_CLOSED);
-    isolationCloseTime = getMillis();
+void stopTrain(void) {
     if (data.inDebug) {
         Serial.print(F("Arrêt du train à "));
-        Serial.println(isolationCloseTime);
+        Serial.println(millis());
     }
+    // Close isolation relay
+    setRelay(POWER_ISOLATION_RELAY, RELAY_CLOSED);
 }
 
 // Start filling
 void startFilling(void) {
-    unsigned long now = getMillis();
     if (data.inDebug) {
         Serial.print(F("Début chargement à "));
-        Serial.println(now);
+        Serial.println(millis());
     }
     setRelay(CLOSE_RELAY, RELAY_OPENED);
     setRelay(OPEN_RELAY, RELAY_CLOSED);
-    fillingStartTime = now;
-    fillingEndTime = 0;
-    relayPulseTime = now;
-    startVibration();
+    #ifdef VIBRATION_RELAY
+        startVibration();
+    #endif
 }
 
 // Stop filling
-void stopFilling(unsigned long now) {
+void stopFilling(void) {
     if (data.inDebug) {
         Serial.print(F("Fin chargement à "));
-        Serial.print(now);
+        Serial.print(millis());
         Serial.print(F(", durée "));
-        Serial.println(now - fillingStartTime);
+        Serial.println(millis() - waitFilledTimer);
     }
     setRelay(OPEN_RELAY, RELAY_OPENED);
     setRelay(CLOSE_RELAY, RELAY_CLOSED);
-    fillingEndTime = now;
-    fillingStartTime = 0;
-    relayPulseTime = now;
     #ifdef VIBRATION_RELAY
         // Keep vibrations after load
-        vibrationLoadTime = now;
+        fillingVibrationActive = true;
+        fillingVibrationTimer = millis();
     #endif
-    isolationOpenTime = now;
 
 }
 
@@ -436,7 +512,7 @@ void stopFilling(unsigned long now) {
 void startTrain(void) {
     if (data.inDebug) {
         Serial.print(F("Départ du train à "));
-        Serial.println(getMillis());
+        Serial.println(millis());
     }
     // Open isolation relay
     setRelay(POWER_ISOLATION_RELAY, RELAY_OPENED);
@@ -444,21 +520,23 @@ void startTrain(void) {
 
 #ifdef VIBRATION_RELAY
     // Start unloading process
-    void startUnloading(unsigned long now) {
-        if (!vibrationUnloadTime) {
+    void startUnloading(void) {
+        if (!unloadingVibrationActive) {
             if (data.inDebug) {
-                Serial.println(F("Début déchargement"));
+                Serial.print(F("Début déchargement à "));
+                Serial.println(millis());
             }
             startVibration();
         }
-        vibrationUnloadTime = now;
+        unloadingVibrationActive = true;                            // Start unloading vibrations
+        unloadingVibrationTimer = millis();                         // Set unload vibration timer
     }
 
     // Start vibration relay
     void startVibration(void) {
         if (data.inDebug) {
             Serial.print(F("Début vibrations à "));
-            Serial.println(getMillis());
+            Serial.println(millis());
         }
         setRelay(VIBRATION_RELAY, RELAY_CLOSED);
     }
@@ -467,11 +545,12 @@ void startTrain(void) {
     void stopVibration(void) {
         if (data.inDebug) {
             Serial.print(F("Fin vibrations à "));
-            Serial.println(getMillis());
+            Serial.println(millis());
         }
         setRelay(VIBRATION_RELAY, RELAY_OPENED);
-        vibrationLoadTime = 0;
-        vibrationUnloadTime = 0;
+        repeatCloseActive = false;
+        fillingVibrationActive = false;
+        unloadingVibrationActive = false;
     }
 #endif
 
@@ -488,8 +567,8 @@ void printHelp(void) {
     Serial.print(F(RELAY_PULSE_DURATION_COMMAND)); Serial.println(F("1-999 : Durée Impulsion relai (ms)"));
     Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.println(F("1-9999 : Durée Remplissage wagon (ms)"));
     #ifdef VIBRATION_RELAY
-        Serial.print(F(LOAD_DELAY_COMMAND)); Serial.println(F("0-9999 : Retard Remplissage vibrations (ms)"));
-        Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.println(F("0-9999 : Retard Vidage vibration (ms)"));
+        Serial.print(F(LOAD_DELAY_COMMAND)); Serial.println(F("0-9999 : Vibrations Remplissage (ms)"));
+        Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.println(F("0-9999 : Vibrations Vidage (ms)"));
         Serial.print(F(RECLOSE_DELAY_COMMAND)); Serial.println(F("0-9999 : Répétition fermeture (ms)"));
     #endif
     Serial.print(F(WAIT_AFTER_STOP_COMMAND)); Serial.println(F("0-9999 : Attente après Arrêt (ms)"));
@@ -512,7 +591,7 @@ void toggleDebug(void){
 
 // Reinitialize all settings
 void reinitAll(void) {
-    stopFilling(getMillis());
+    stopFilling();
     initSettings();
     saveSettings();
 }
@@ -529,16 +608,14 @@ void executeCommand(void) {
     } else if (isCommand(inputBuffer, (char*) OPEN_RELAY_COMMAND)) {
         startFilling();
     } else if (isCommand(inputBuffer, (char*) CLOSE_RELAY_COMMAND)) {
-        stopFilling(getMillis());
+        stopFilling();
     } else if (isCommand(inputBuffer, (char*) ILS_STATE_COMMAND)) {
         displayIlsState();
     } else if (isCommand(inputBuffer, (char*) START_COMMAND)) {
         data.isActive = true;
     } else if (isCommand(inputBuffer, (char*) STOP_COMMAND)) {
         data.isActive = false;
-        if (fillingStartTime) {
-            stopFilling(getMillis());
-        }
+        stopFilling();
     } else if (isCommand(inputBuffer, (char*) DEBUG_TOGGLE_COMMAND)) {
         toggleDebug();
     } else if (isCommand(inputBuffer, (char*) DISPLAY_VARIABLES_COMMAND)) {
@@ -546,12 +623,15 @@ void executeCommand(void) {
     } else if (isCommandValue(inputBuffer, (char*) ILS_ACTIVATION1_COMMAND, 1, 10)) { 
         data.activationIls1 = commandValue;
         saveSettings();
+        reloadIls();
     } else if (isCommandValue(inputBuffer, (char*) ILS_ACTIVATION2_COMMAND, 0, 10)) { 
         data.activationIls2 = commandValue;
         saveSettings();
+        reloadIls();
     } else if (isCommandValue(inputBuffer, (char*) ILS_ACTIVATION3_COMMAND, 0, 10)) { 
         data.activationIls3 = commandValue;
         saveSettings();
+        reloadIls();
     } else if (isCommandValue(inputBuffer, (char*) WAGON_FILL_DURATION_COMMAND, 1, 9999)) {
         data.fillingTime = commandValue;
         saveSettings();
@@ -583,14 +663,21 @@ void executeCommand(void) {
 
 // Display all variables (debug)
 void displayVariables(void) {
-    Serial.print(F("millis()=")); Serial.println(millis());
-    Serial.print(F("fillingStartTime=")); Serial.println(fillingStartTime);
-    Serial.print(F("fillingEndTime=")); Serial.println(fillingEndTime);
-    Serial.print(F("relayPulseTime=")); Serial.println(relayPulseTime);
+    Serial.print(F("stateMachine=")); Serial.println(stateMachine);
+    Serial.print(F("waitAfterStopTimer=")); Serial.println(millis() - waitAfterStopTimer);
+    Serial.print(F("waitFilledTimer=")); Serial.println(millis() - waitFilledTimer);
+    Serial.print(F("waitAfterFillingTimer=")); Serial.println(millis() - waitAfterFillingTimer);
+    Serial.print(F("waitForIlsClosedTimer=")); Serial.println(millis() - waitForIlsClosedTimer);
+    Serial.print(F("relayPulseActive=")); Serial.println(relayPulseActive);
+    Serial.print(F("relayPulseTimer=")); Serial.println(millis() - relayPulseTimer);
     Serial.print(F("lastIlsDisplay=")); Serial.println(lastIlsDisplay);
     #ifdef VIBRATION_RELAY
-        Serial.print(F("vibrationLoadTime=")); Serial.println(vibrationLoadTime);
-        Serial.print(F("vibrationUnloadTime=")); Serial.println(vibrationUnloadTime);
+        Serial.print(F("fillingVibrationActive=")); Serial.println(fillingVibrationActive);
+        Serial.print(F("fillingVibrationTimer=")); Serial.println(millis() - fillingVibrationTimer);
+        Serial.print(F("unloadingVibrationActive=")); Serial.println(unloadingVibrationActive);
+        Serial.print(F("unloadingVibrationTimer=")); Serial.println(millis() - unloadingVibrationTimer);
+        Serial.print(F("repeatCloseActive=")); Serial.println(repeatCloseActive);
+        Serial.print(F("repeatCloseTimer=")); Serial.println(millis() - repeatCloseTimer);
     #endif
     Serial.print(F("doorOpened=")); Serial.println(doorOpened);
     Serial.println(F("ILS: 1234567890D"));
@@ -622,10 +709,23 @@ void setRelay(uint8_t index, uint8_t state){
     // Set door opened depnding on states
     if (index == OPEN_RELAY && state == RELAY_CLOSED) {
         doorOpened = true;
+        if (data.inDebug) {
+            Serial.println(F("Ouverture trémie"));
+        }
     }
     if (index == CLOSE_RELAY && state == RELAY_CLOSED) {
-        repeatCloseTime = getMillis();
+        #ifdef VIBRATION_RELAY
+            fillingVibrationActive = true;
+            fillingVibrationTimer = millis();
+        #endif
         doorOpened = false;
+        if (data.inDebug) {
+            Serial.println(F("Fermerture trémie"));
+        }
+    }
+    if (index == CLOSE_RELAY || index == OPEN_RELAY) {
+        relayPulseActive = true;
+        relayPulseTimer = millis();
     }
 }
 
@@ -640,99 +740,131 @@ void setup(void){
     resetInputBuffer();
     initSettings();
     loadSettings();
-    stopFilling(getMillis());
     displayStatus();
+    reloadIls();
 }
 
 // Main loop
 void loop(void){
-    unsigned long now = getMillis();
+    unsigned long now = millis();
 
+    // Scan all debouncers
+    for (uint8_t i = 0; i < 4; i++) {
+        // Check for dataIndex defined
+        if (debouncer[i].dataIndex) {
+            // Read current state
+            bool currentState = (digitalRead(ilsPinMapping[debouncer[i].dataIndex-1]) == ILS_CLOSED);
+            if (debouncer[i].lastWasClosed != currentState) {       // Does state change since last call?
+                debouncer[i].lastWasClosed = currentState;          // Save state
+                debouncer[i].lastChangeTime = now;                  // Save last change time
+            }
+            if (debouncer[i].isClosed != debouncer[i].lastWasClosed) {  //State changed?
+                if ((now - debouncer[i].lastChangeTime) > 500) {     // Is pin stable for 50 ms?
+                    debouncer[i].isClosed = debouncer[i].lastWasClosed; // Load state with last stable one
+                    if (data.inDebug) {
+                        Serial.print(debouncer[i].isClosed?F("Fermeture"):F("Ouverture"));
+                        Serial.print(F(" ILS "));
+                        if (i == 3){                                // Is this unloading ILS
+                            Serial.print(F("déchargement"));
+                        } else {                                    // This is filling ILS
+                            Serial.print(debouncer[i].dataIndex);
+                        }
+                    }
+                    if (data.inDebug) {
+                        Serial.print(" à ");
+                        Serial.print(millis());
+                    }
+                    if (debouncer[i].isClosed) {                    // Are we now closed?
+                        if (data.isActive) {                        // ... with process acctive?
+                            if (i == 3){                            // Is this unloading ILS
+                                if (data.inDebug) {
+                                    Serial.println("");
+                                }
+                                #ifdef VIBRATION_RELAY
+                                    startUnloading();               // Start unloading
+                                #endif
+                            } else {                                // This is filling ILS
+                                if (stateMachine == waitForWagon) { // Are we waiting for wagon?
+                                    if (data.inDebug) {
+                                        Serial.println("");
+                                    }
+                                    stopTrain();                    // Stop train
+                                    stateMachine = waitingAfterStop;// Set next step
+                                    waitAfterStopTimer = millis();  // Set timer
+                                } else {
+                                    if (data.inDebug) {
+                                        Serial.print(F(" ignorée, état="));
+                                        Serial.println(stateMachine);
+                                    }
+                                }
+                            }
+                        } else {                                    // On n'est pas en mode actif
+                            if (data.inDebug) {
+                                Serial.println(F(" ignorée, process à l'arrêt"));
+                            }
+                        }
+                    } else {
+                        if (data.inDebug) {
+                            Serial.println("");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    now = millis();                                                 // Refresh current time (to avoid side effects)
+    // Are we at end of waiting after stop?
+    if (stateMachine == waitingAfterStop && ((now-waitAfterStopTimer) > data.waitAfterStop)) {
+        startFilling();
+        stateMachine = waitFilled;
+        waitFilledTimer = now;
+    }
+
+    // Are we at end of waiting filled?
+    if (stateMachine == waitFilled && ((now-waitFilledTimer) > data.loadDelay)) {
+        stopFilling();
+        stateMachine = waitAfterFilling;
+        waitAfterFillingTimer = now;
+    }
+
+    // Are we at end of waiting after filled?
+    if (stateMachine == waitAfterFilling && ((now-waitAfterFillingTimer) > data.waitAfterFill)) {
+        startTrain();
+        stateMachine = waitForWagon;
+    }
+
+    now = millis();                                                 // Refresh current time (to avoid side effects)
     // Do we need to close any relay after pulse?
-    if (relayPulseTime && ((now - relayPulseTime) >= data.pulseTime)) {
+    if (relayPulseActive && ((now - relayPulseTimer) >= data.pulseTime)) {
         if (data.inDebug) {
             Serial.print(F("Fin impulsion à "));
             Serial.print(now);
             Serial.print(F(", durée "));
-            Serial.println(now - relayPulseTime);
+            Serial.println(now - relayPulseTimer);
         }
         for (uint8_t i = 0; i < 2; i++) {
             setRelay(i, RELAY_OPENED);
         }
-        relayPulseTime = 0;        
-    }
-
-    // Do we need to stop filling after a too long time opened?
-    if (!fillingEndTime && fillingStartTime && ((now - fillingStartTime) >= data.fillingTime)) {
-        Serial.print(F("Fermeture forcée à "));
-        Serial.print(now);
-        Serial.print(F(" après "));
-        Serial.print(data.fillingTime);
-        Serial.println(F(" ms"));
-        stopFilling(now);
-    };
-
-    // Do job if we're active
-    if (data.isActive) {
-        // Check for activation ILS
-        if (!fillingStartTime && (digitalRead(ilsPinMapping[data.activationIls1]) == ILS_CLOSED)) {
-            if (data.inDebug) {
-                Serial.print(F("Début ILS 1 à "));
-                Serial.println(now);
-            }
-            stopTrain();
-        }
-        if (!fillingStartTime && (digitalRead(ilsPinMapping[data.activationIls2]) == ILS_CLOSED)) {
-            if (data.inDebug) {
-                Serial.print(F("Début ILS 2 à "));
-                Serial.println(now);
-            }
-            stopTrain();
-        }
-        if (!fillingStartTime && (digitalRead(ilsPinMapping[data.activationIls3]) == ILS_CLOSED)) {
-            if (data.inDebug) {
-                Serial.print(F("Début ILS 3 à "));
-                Serial.println(now);
-            }
-            stopTrain();
-        }
-        #ifdef VIBRATION_RELAY
-            // Check for unload ILS
-            if (digitalRead(ilsPinMapping[10]) == ILS_CLOSED) {
-                startUnloading(now);
-            }
-        #endif
+        relayPulseActive = false;      
     }
 
     #ifdef VIBRATION_RELAY
-        // Stop vibration if more than load/unload time
-        if (((!vibrationLoadTime) || ((now - vibrationLoadTime) >= data.loadDelay))
-                && ((!vibrationUnloadTime) || ((now - vibrationUnloadTime) >= data.unloadDelay))) {
-            if (vibrationLoadTime || vibrationUnloadTime) {
+        // Any vibration active?
+        if (fillingVibrationActive || unloadingVibrationActive) {
+            // Stop vibrations if both expired
+            if (((now - fillingVibrationTimer) >= data.loadDelay)
+                    && ((now - unloadingVibrationTimer) >= data.unloadDelay)) {
                 stopVibration();
             }
         }
 
-        // Force close when vibration is active and door closed
-        if (!doorOpened && relayState[VIBRATION_RELAY] == RELAY_CLOSED) {
-            if ((now - repeatCloseTime) > data.repeatCloseDelay) {
-                repeatCloseTime = now;
-                setRelay(CLOSE_RELAY, RELAY_CLOSED);
-                relayPulseTime = now;
-
-            }
+        // Force close if needed
+        if (repeatCloseActive && (now - repeatCloseTimer) > data.repeatCloseDelay) {
+            repeatCloseTimer = now;
+            setRelay(CLOSE_RELAY, RELAY_CLOSED);
         }
     #endif
-
-    // Stop train timer
-    if ((!isolationCloseTime) || ((now - isolationCloseTime) >= data.waitAfterStop)) {
-            startFilling();
-    }
-
-    // Start train timer
-    if ((!isolationOpenTime) || ((now - isolationOpenTime) >= data.waitAfterFill)) {
-            startTrain();
-    }
 
     // Scan serial for input
     if (Serial.available()) {
@@ -741,7 +873,7 @@ void loop(void){
 
     // Display ILS state if needed
     if (displayIls) {
-        if ((getMillis() - lastIlsDisplay) > DISPLAY_ILS_TIME) {
+        if ((millis() - lastIlsDisplay) > DISPLAY_ILS_TIME) {
             Serial.print (F("\rILS : "));
             for (uint8_t i = 0; i < 10; i++) {
                 if (digitalRead(ilsPinMapping[i]) == ILS_CLOSED) {
@@ -761,7 +893,7 @@ void loop(void){
                 }
             #endif
             Serial.print(F(" "));
-            lastIlsDisplay = getMillis();
+            lastIlsDisplay = millis();
         }
     }
 }
