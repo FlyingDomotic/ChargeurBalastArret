@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.3.7-4"
+#define CODE_VERSION "V26.3.12-4"
 
 /*
 
@@ -628,7 +628,7 @@ void printHelp(void) {
     Serial.print(F(ILS_ACTIVATION3_COMMAND)); Serial.print(F("0-10 : ILS 3 (numéro) => ")); Serial.println(data.activationIls3);
     Serial.print(F(RELAY_PULSE_DURATION_COMMAND)); Serial.print(F("1-999 : Durée Impulsion relai (ms) => ")); Serial.println(data.pulseTime);
     #ifdef VIBRATION_RELAY
-        Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.print(F("1-9999 : Durée Remplissage wagon (ms) => ")); Serial.println();
+        Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.print(F("1-9999 : Durée Remplissage wagon (ms) => ")); Serial.println(data.fillingTime);
         Serial.print(F(LOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Vibrations Remplissage (ms) => ")); Serial.println(data.loadDelay);
         Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Retard Vidage vibration (ms) => ")); Serial.println(data.unloadDelay);
         Serial.print(F(RECLOSE_DELAY_COMMAND)); Serial.print(F("0-9999 : Répétition fermeture (ms) => ")); Serial.println(data.repeatCloseDelay);
@@ -831,7 +831,7 @@ void loop(void){
                 debouncer[i].lastChangeTime = now;                  // Save last change time
             }
             if (debouncer[i].isClosed != debouncer[i].lastWasClosed) {  //State changed?
-                if ((now - debouncer[i].lastChangeTime) > 500) {     // Is pin stable for 50 ms?
+                if ((now - debouncer[i].lastChangeTime) > 50) {     // Is pin stable for 50 ms?
                     debouncer[i].isClosed = debouncer[i].lastWasClosed; // Load state with last stable one
                     if (data.inDebug) {
                         Serial.print(debouncer[i].isClosed?F("Fermeture"):F("Ouverture"));
@@ -894,7 +894,7 @@ void loop(void){
     }
 
     // Are we at end of waiting filled?
-    if (stateMachine == waitFilled && ((now-waitFilledTimer) > data.loadDelay)) {
+    if (stateMachine == waitFilled && ((now-waitFilledTimer) > data.fillingTime)) {
         stopFilling();
         stateMachine = waitAfterFilling;
         waitAfterFillingTimer = now;
