@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.3.12-4"
+#define CODE_VERSION "V26.3.16-1"
 
 /*
 
@@ -19,7 +19,7 @@ Contrôle d'un chargeur de ballast pour train miniature (version chargement à l
         
     Ce cycle peut être répété jusqu'à 3 fois par wagon, pour chaque wagon équipé d'un aimant.
 
-    Noter que le sens de circulation des trains n'a pas d'impact, si l'aimant est placé au milieu des wagons.
+    Noter que le sens de circulation des trains n'a pas d'impact si l'aimant est placé au milieu des wagons.
 
 	Il arrive que le granulat bloque la sortie de la trémie. Pour contrer ce problème, on peut ajouter
         un vibreur qui sera alimenté lorsque la trémie s'ouvre jusqu'à expiration d'un temps donné
@@ -30,6 +30,11 @@ Contrôle d'un chargeur de ballast pour train miniature (version chargement à l
         Sur certains modèles de trémie, il arrive que ces vibrations (ré)ouvrent la trémie. Pour contrer
         cette tendance, il est possible de définir un délai de refermeture de la trémie, qui renverra une
         impulsion de fermeture à intervalle régulier tant que les vibrations seront actives.
+    
+    Pour plus de réalisme, on peut ajouter un module MP3 qui permet de jouer un son pendant le chargement des wagons
+        et un autre pendant le déchargement. Ce module n'est pas obligatoire, ne pas l'installer si inutile.
+        Toujours dans le même souci de réalisme, le son augmente de 0 à sa valeur maximale sur une dure fixée au
+        début du chargement, et réduit de sa valeur maximale à 0 sur la même durée lors du déchargement.
     
     Les réglages sont envoyés à l'Arduino au travers de sa liaison série. Ce même moyen est utilisé pour
 		envoyer les messages à l'utilisateur.
@@ -43,6 +48,8 @@ Hardware Arduino Nano:
         - pour sa fermeture,
         - pour le vibreur,
         - pour la coupure de l'alimentation de la voie.
+    - 1 sortie son MP3:
+        - pour jouer les sons de chargement et déchargement, optionnel.
 
 Paramétrage :
     - on cherche la durée d'impulsion nécessaire pour ouvrir ou fermer la trémie à coup sur, sans faire chauffer
@@ -65,10 +72,15 @@ Commandes :
     - RF0-9999 : Répétition fermeture (ms)
     - AA0-9999 : Attente après Arrêt (ms)
     - AR0-9999 : Attente après remplissage (ms)
+    - SC0-99 : Numéro du son de chargement (0 si inutile)
+    - SD0-99 : Numéro du son de déchargement (0 si inutile)
+    - TS1-99 : Numéro du son à jouer en test
+    - V0-30 : volume du son (0 si inutile)
+    - IS0-999 : durée d'incrément du son (ms)
     - M : Marche (détection passage wagon activée)
     - A : Arrêt (stoppe la détection des wagons)
     - E : Etat ILS
-    - U : arrêt d'urgence (ferme la trémie, arrêt du processus, des vibrations et du train)
+    - U : arrêt d'urgence (ferme la trémie, arrêt du processus, des vibrations, du train et du son)
     - O : Ouverture trémie
     - F : Fermeture trémie
     - AT : Arrêt Train
@@ -83,6 +95,7 @@ Appui sur <ESC> (parfois marquée Escape ou Echap.)
         - Ferme la trémie
         - Arrête les vibrations
         - Arrête le train
+        - Stoppe le son
 
 Example:
     I15     Start loading on ILS 5
@@ -136,6 +149,11 @@ Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 #define RECLOSE_DELAY_COMMAND "RF"
 #define WAIT_AFTER_STOP_COMMAND "AA"
 #define WAIT_AFTER_FILL_COMMAND "AR"
+#define FILL_SOUND_COMMAND "SC"
+#define UNLOAD_SOUND_COMMAND "SD"
+#define TEST_SOUND_COMMAND "TS"
+#define SOUND_VOLUME_COMMAND "V"
+#define SOUND_INCREMENT_COMMAND "IS"
 #define START_COMMAND "M"
 #define STOP_COMMAND "A"
 #define EMERGENCY_COMMAND "U"
@@ -162,6 +180,11 @@ Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 #define VIBRATION_RELAY 2                                           // Index of vibration relay into relayPinMapping (do not define in no vibration relay)
 #define POWER_ISOLATION_RELAY 3                                     // Index of power isolation relay into relayPinMapping
 #define DISPLAY_KEYBOARD_INPUT                                      // Display each character read on keyboard (do not define if not needed)
+#define MP3_PIN 8                                                   // MP3 sound module pin (comment it if not)
+
+#ifdef MP3_PIN
+    #include <mp3_player_module_wire.h>								// MP3 player (one wire connection)
+#endif
 
 // EEPROM data (current version)
 struct eepromData_s {
@@ -179,6 +202,10 @@ struct eepromData_s {
     uint16_t repeatCloseDelay;                                      // Duration (ms) to force close relay when vibration active and door closed
     uint16_t waitAfterStop;                                         // Duration (ms) to wait after train stop before filling
     uint16_t waitAfterFill;                                         // Duration (ms) to wait after filling to restart train
+    uint8_t fillSound;                                              // Fill sound index
+    uint8_t unloadSound;                                            // Unload sound index
+    uint8_t soundVolume;                                            // Sound volume
+    uint8_t soundIncrement;                                         // Sound increment
 };
 
 bool displayIls = false;                                            // When set, continously display ILS state
@@ -216,6 +243,15 @@ unsigned long relayPulseTimer = 0;                                  // Relay pul
     // Repeat close during vibrations
     bool repeatCloseActive = false;                                 // Repeat close during vibrations flag
     unsigned long repeatCloseTimer = 0;                             // Repeat close during vibrations timer
+#endif
+
+// Sound
+#ifdef MP3_PIN
+    Mp3PlayerModuleWire mp3Player(MP3_PIN);					        // MP3 module one-line protocol
+    unsigned long lastSoundChangeTime = 0;                          // Last time we changed sound volume
+    unsigned long soundChangeDuration = 0;                          // Duration of one sound change
+    int8_t soundIncrement = 0;                                      // Sound increment (negative to decrement)
+    uint8_t soundVolume = 0;                                        // Current sound volume
 #endif
 
 // Debouncer
@@ -258,6 +294,12 @@ void startTrain(void);                                              // Start tra
     void startUnloading(void);                                      // Start unloading process
     void startVibration(void);                                      // Start vibration relay
     void stopVibration(void);                                       // Stop vibration relay
+#endif
+#ifdef MP3_PIN
+    void soundSetup();                                              // Setup sound chip
+    void playSound(uint8_t index);                                  // Play sound index
+    void stopSound(void);                                           // Stop playing sound
+    void changeVolume();                                            // Change current volume
 #endif
 void displayIlsState(void);                                         // Display all ILS state
 void printHelp(void);                                               // Print help message
@@ -337,6 +379,28 @@ void displayStatus(void) {
             Serial.print(data.repeatCloseDelay);
         }
     #endif
+    #ifdef MP3_PIN
+        if (data.fillSound) {
+            Serial.print(F(" "));
+            Serial.print(F(FILL_SOUND_COMMAND));
+            Serial.print(data.fillSound);
+        }
+        if (data.unloadSound) {
+            Serial.print(F(" "));
+            Serial.print(F(UNLOAD_SOUND_COMMAND));
+            Serial.print(data.unloadSound);
+        }
+        if (data.soundVolume) {
+            Serial.print(F(" "));
+            Serial.print(F(SOUND_VOLUME_COMMAND));
+            Serial.print(data.soundVolume);
+        }
+        if (data.soundIncrement) {
+            Serial.print(F(" "));
+            Serial.print(F(SOUND_INCREMENT_COMMAND));
+            Serial.print(data.soundIncrement);
+        }
+    #endif
     if (data.inDebug) Serial.print(F(", déverminage"));
     Serial.println(data.isActive ? F(", en marche") : F(", à l'arrêt"));
 }
@@ -355,6 +419,38 @@ void loadSettings(void) {
 
     uint8_t version = EEPROM.read(1);                               // Get version
     if (version == 1) {
+        // EEPROM data (V1 version)
+        struct eepromDataV1_s {
+            uint8_t magicNumber;                                    // Magic number
+            uint8_t version;                                        // Structure version
+            uint8_t activationIls1;                                 // ILS number 1 to activate filling
+            uint8_t activationIls2;                                 // ILS number 2 to activate filling
+            uint8_t activationIls3;                                 // ILS number 3 to activate filling
+            uint16_t fillingTime;                                   // Time (0.001s) to fill wagon
+            uint16_t pulseTime;                                     // Time (0.001s) to send current to relay
+            bool isActive;                                          // When active flag is true, relays are triggered by ILS
+            bool inDebug;                                           // Print debug message when true
+            uint16_t loadDelay;                                     // Duration (ms) to keep vibrations after load (here even if VIBRATION_RELAY not set)
+            uint16_t unloadDelay;                                   // Duration (ms) to keep vibrations after unload (here even if VIBRATION_RELAY not set)
+            uint16_t repeatCloseDelay;                              // Duration (ms) to force close relay when vibration active and door closed
+            uint16_t waitAfterStop;                                 // Duration (ms) to wait after train stop before filling
+            uint16_t waitAfterFill;                                 // Duration (ms) to wait after filling to restart train
+        };
+        eepromDataV1_s dataV1;
+        EEPROM.get(0, dataV1);                                      // Load EEPROM V1 structure
+        data.activationIls1 =  dataV1.activationIls1;               // Copy V1 data to V2
+        data.activationIls2 =  dataV1.activationIls2;
+        data.activationIls3 =  dataV1.activationIls3;
+        data.fillingTime =  dataV1.fillingTime;
+        data.pulseTime =  dataV1.pulseTime;
+        data.isActive =  dataV1.isActive;
+        data.inDebug =  dataV1.inDebug;
+        data.loadDelay =  dataV1.loadDelay;
+        data.unloadDelay =  dataV1.unloadDelay;
+        data.repeatCloseDelay =  dataV1.repeatCloseDelay;
+        data.waitAfterStop =  dataV1.waitAfterStop;
+        data.waitAfterFill =  dataV1.waitAfterFill;
+    } else if (version == 2) {
         EEPROM.get(0, data);                                        // Load EEPROM V2 structure
     } else {
         Serial.print(F("Version est "));
@@ -391,6 +487,10 @@ void initSettings(void) {
     data.repeatCloseDelay = 1000;                                   // Force close relay when vibration active and door closed
     data.waitAfterStop = 1000;                                      // Delay between stop and fill
     data.waitAfterFill = 1000;                                      // Delay between fill and start
+    data.fillSound = 1;                                             // Fill sound index
+    data.unloadSound = 2;                                           // Unload sound index
+    data.soundVolume = 15;                                          // Sound volume
+    data.soundIncrement = 500;                                      // Sound increment
 }
 
 // Reset serial input buffer
@@ -433,6 +533,9 @@ void emergencyStop(void) {
 
     // Arrêt du relai de fermeture de la trémie
     digitalWrite(relayPinMapping[CLOSE_RELAY], RELAY_OPENED);
+
+    // Arrête le son
+    stopSound();
 
     // Reset variables and timers
     data.isActive = false;
@@ -635,6 +738,13 @@ void printHelp(void) {
     #endif
     Serial.print(F(WAIT_AFTER_STOP_COMMAND)); Serial.print(F("0-9999 : Attente après Arrêt (ms) => ")); Serial.println(data.waitAfterStop);
     Serial.print(F(WAIT_AFTER_FILL_COMMAND)); Serial.print(F("0-9999 : Attente après remplissage (ms) => ")); Serial.println(data.waitAfterFill);
+    #ifdef MP3_PIN
+        Serial.print(F(FILL_SOUND_COMMAND)); Serial.print(F("0-99 : Son chargement => ")); Serial.println(data.fillSound);
+        Serial.print(F(UNLOAD_SOUND_COMMAND)); Serial.print(F("0-99 : Son déchargement => ")); Serial.println(data.unloadSound);
+        Serial.print(F(SOUND_VOLUME_COMMAND)); Serial.print(F("0-30 : Volume son => ")); Serial.println(data.soundVolume);
+        Serial.print(F(SOUND_INCREMENT_COMMAND)); Serial.print(F("0-999 : Incrément son (ms) => ")); Serial.println(data.soundIncrement);
+        Serial.print(F(TEST_SOUND_COMMAND)); Serial.print(F("1-99 : Test son")); Serial.println();
+    #endif
     Serial.print(F(START_COMMAND)); Serial.print(F(" : Marche")); Serial.println();
     Serial.print(F(STOP_COMMAND)); Serial.print(F(" : Arrêt")); Serial.println();
     Serial.print(F(EMERGENCY_COMMAND)); Serial.print(F(" : arrêt d'Urgence")); Serial.println();
@@ -725,6 +835,22 @@ void executeCommand(void) {
     } else if (isCommandValue(inputBuffer, (char*) RECLOSE_DELAY_COMMAND, 1, 9999)) {
         data.repeatCloseDelay = commandValue;
         saveSettings();
+    #ifdef MP3_PIN
+        } else if (isCommandValue(inputBuffer, (char*) FILL_SOUND_COMMAND, 0, 99)) {
+            data.fillSound = commandValue;
+            saveSettings();
+        } else if (isCommandValue(inputBuffer, (char*) UNLOAD_SOUND_COMMAND, 0, 99)) {
+            data.unloadSound = commandValue;
+            saveSettings();
+        } else if (isCommandValue(inputBuffer, (char*) SOUND_VOLUME_COMMAND, 0, 30)) {
+            data.soundVolume = commandValue;
+            saveSettings();
+        } else if (isCommandValue(inputBuffer, (char*) SOUND_INCREMENT_COMMAND, 0, 999)) {
+            data.soundIncrement = commandValue;
+            saveSettings();
+        } else if (isCommandValue(inputBuffer, (char*) TEST_SOUND_COMMAND, 1, 99)) {
+            playSound(commandValue);
+    #endif
     } else {
         if (inputBuffer[0]) {
             printHelp();
@@ -801,6 +927,68 @@ void setRelay(uint8_t index, uint8_t state){
     }
 }
 
+#ifdef MP3_PIN
+    // Init sound chip
+    void soundSetup(void) {
+        mp3Player.set_storage(mp3Player.STORAGE_FLASH);			    // Use files in flash (should be downloaded before using USB)
+        mp3Player.set_play_mode(mp3Player.PLAY_TRACK_REPEAT);       // Repeat track forever
+    }
+
+    // Play a sound
+    void playSound(uint8_t index) {
+        if (data.soundVolume && index) {                            // Only if volume and index set
+            if (data.soundIncrement && data.soundVolume > 1) {      // Sound increment and target volume > 1?
+                soundVolume = 1;                                    // Start at volume 1
+                soundIncrement = 1;                                 // Increase sound
+                soundChangeDuration = soundIncrement / data.soundVolume; // Wait time between increments
+                lastSoundChangeTime = millis();                     // Set last volume change time
+
+            } else {
+                soundVolume = data.soundVolume;                     // Set directly target sound volume
+                lastSoundChangeTime = 0;                            // Clear last volume set time
+            }
+            mp3Player.set_volume(soundVolume);                      // Set volume
+            mp3Player.set_track_index(index);                       // Set track index to play
+            mp3Player.play();                                       // Play track
+        }
+    }
+
+    // Stop playing a sound
+    void stopSound(void) {
+        if (data.soundVolume) {                                     // Only if volume set
+            if (data.soundIncrement && data.soundVolume > 1) {      // Sound increment and target volume > 1?
+                soundVolume -= 1;                                   // Start at volume - 1
+                soundIncrement = -1;                                // Decrease sound
+                soundChangeDuration = soundIncrement / data.soundVolume; // Wait time between increments
+                lastSoundChangeTime = millis();                     // Set last volume change time
+
+            } else {
+                soundVolume = 0;                                    // Set directly target sound volume
+                lastSoundChangeTime = 0;                            // Clear last volume set time
+            }
+            mp3Player.set_volume(soundVolume);                      // Set volume
+            if (!soundVolume) {                                     // Is volume set to zero?
+                mp3Player.stop();                                   // Stop player
+            }
+        }
+
+    }
+
+    // Set sound volume giving increase/decrease
+    void changeVolume() {
+        soundVolume += soundIncrement;                              // Increment/decrement sound
+        if (soundVolume < data.soundVolume && soundVolume > 0) {    // We're not yet at target sound
+            lastSoundChangeTime = millis();                         // Set last volume change time
+        } else {
+            lastSoundChangeTime = 0;                                // Reset last volume change time
+        }
+        mp3Player.set_volume(soundVolume);                          // Set new volume
+        if (!soundVolume) {                                         // Volume = 0?
+            mp3Player.stop();                                       // Stop player
+        }
+    }
+#endif
+
 // Setup
 void setup(void){
     initIO();
@@ -812,6 +1000,9 @@ void setup(void){
     resetInputBuffer();
     initSettings();
     loadSettings();
+    #ifdef MP3_PIN
+        soundSetup();
+    #endif
     displayStatus();
     reloadIls();
 }
@@ -935,6 +1126,13 @@ void loop(void){
         if (repeatCloseActive && (now - repeatCloseTimer) > data.repeatCloseDelay) {
             repeatCloseTimer = now;
             setRelay(CLOSE_RELAY, RELAY_CLOSED);
+        }
+    #endif
+
+    #ifdef MP3_PIN
+        // Are we in volume change with delay expired?
+        if (lastSoundChangeTime && ((millis - lastSoundChangeTime) >= soundChangeDuration)) {
+            changeVolume();                                         // Icrease/decrease volume
         }
     #endif
 
