@@ -1,4 +1,6 @@
-#define CODE_VERSION "V26.3.16-1"
+#define CODE_VERSION "V26.3.25-1"
+
+#define VERSION_FRANCAISE
 
 /*
 
@@ -139,32 +141,61 @@ Licence: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 #include "EEPROM.h"
 
 // Command and text
-#define ILS_ACTIVATION1_COMMAND "I1"
-#define ILS_ACTIVATION2_COMMAND "I2"
-#define ILS_ACTIVATION3_COMMAND "I3"
-#define RELAY_PULSE_DURATION_COMMAND "DI"
-#define WAGON_FILL_DURATION_COMMAND "DR"
-#define LOAD_DELAY_COMMAND "VR"
-#define UNLOAD_DELAY_COMMAND "VV"
-#define RECLOSE_DELAY_COMMAND "RF"
-#define WAIT_AFTER_STOP_COMMAND "AA"
-#define WAIT_AFTER_FILL_COMMAND "AR"
-#define FILL_SOUND_COMMAND "SC"
-#define UNLOAD_SOUND_COMMAND "SD"
-#define TEST_SOUND_COMMAND "TS"
-#define SOUND_VOLUME_COMMAND "V"
-#define SOUND_INCREMENT_COMMAND "IS"
-#define START_COMMAND "M"
-#define STOP_COMMAND "A"
-#define EMERGENCY_COMMAND "U"
-#define ILS_STATE_COMMAND "E"
-#define OPEN_RELAY_COMMAND "O"
-#define CLOSE_RELAY_COMMAND "F"
-#define STOP_TRAIN_COMMAND "AT"
-#define START_TRAIN_COMMAND "DT"
-#define DEBUG_TOGGLE_COMMAND "D"
-#define INIT_COMMAND "INIT"
-#define DISPLAY_VARIABLES_COMMAND "AV"
+#ifdef VERSION_FRANCAISE
+    #define ILS_ACTIVATION1_COMMAND "I1"
+    #define ILS_ACTIVATION2_COMMAND "I2"
+    #define ILS_ACTIVATION3_COMMAND "I3"
+    #define RELAY_PULSE_DURATION_COMMAND "DI"
+    #define WAGON_FILL_DURATION_COMMAND "DR"
+    #define LOAD_DELAY_COMMAND "VR"
+    #define UNLOAD_DELAY_COMMAND "VV"
+    #define RECLOSE_DELAY_COMMAND "RF"
+    #define WAIT_AFTER_STOP_COMMAND "AA"
+    #define WAIT_AFTER_FILL_COMMAND "AR"
+    #define FILL_SOUND_COMMAND "SC"
+    #define UNLOAD_SOUND_COMMAND "SD"
+    #define TEST_SOUND_COMMAND "TS"
+    #define SOUND_VOLUME_COMMAND "V"
+    #define SOUND_INCREMENT_COMMAND "IS"
+    #define START_COMMAND "M"
+    #define STOP_COMMAND "A"
+    #define EMERGENCY_COMMAND "U"
+    #define ILS_STATE_COMMAND "E"
+    #define OPEN_RELAY_COMMAND "O"
+    #define CLOSE_RELAY_COMMAND "F"
+    #define STOP_TRAIN_COMMAND "AT"
+    #define START_TRAIN_COMMAND "DT"
+    #define DEBUG_TOGGLE_COMMAND "D"
+    #define INIT_COMMAND "INIT"
+    #define DISPLAY_VARIABLES_COMMAND "AV"
+#else
+    #define ILS_ACTIVATION1_COMMAND "I1"
+    #define ILS_ACTIVATION2_COMMAND "I2"
+    #define ILS_ACTIVATION3_COMMAND "I3"
+    #define RELAY_PULSE_DURATION_COMMAND "ID"
+    #define WAGON_FILL_DURATION_COMMAND "FD"
+    #define LOAD_DELAY_COMMAND "FV"
+    #define UNLOAD_DELAY_COMMAND "UV"
+    #define RECLOSE_DELAY_COMMAND "RC"
+    #define WAIT_AFTER_STOP_COMMAND "WS"
+    #define WAIT_AFTER_FILL_COMMAND "WF"
+    #define FILL_SOUND_COMMAND "LS"
+    #define UNLOAD_SOUND_COMMAND "US"
+    #define TEST_SOUND_COMMAND "TS"
+    #define SOUND_VOLUME_COMMAND "SV"
+    #define SOUND_INCREMENT_COMMAND "SI"
+    #define START_COMMAND "R"
+    #define STOP_COMMAND "S"
+    #define EMERGENCY_COMMAND "E"
+    #define ILS_STATE_COMMAND "IS"
+    #define OPEN_RELAY_COMMAND "O"
+    #define CLOSE_RELAY_COMMAND "C"
+    #define STOP_TRAIN_COMMAND "ST"
+    #define START_TRAIN_COMMAND "RT"
+    #define DEBUG_TOGGLE_COMMAND "D"
+    #define INIT_COMMAND "INIT"
+    #define DISPLAY_VARIABLES_COMMAND "DV"
+#endif
 
 //  Parameters
 
@@ -204,8 +235,8 @@ struct eepromData_s {
     uint16_t waitAfterFill;                                         // Duration (ms) to wait after filling to restart train
     uint8_t fillSound;                                              // Fill sound index
     uint8_t unloadSound;                                            // Unload sound index
+    uint16_t soundIncrementDuration;                                // Sound increment
     uint8_t soundVolume;                                            // Sound volume
-    uint8_t soundIncrement;                                         // Sound increment
 };
 
 bool displayIls = false;                                            // When set, continously display ILS state
@@ -395,23 +426,36 @@ void displayStatus(void) {
             Serial.print(F(SOUND_VOLUME_COMMAND));
             Serial.print(data.soundVolume);
         }
-        if (data.soundIncrement) {
+        if (data.soundIncrementDuration) {
             Serial.print(F(" "));
             Serial.print(F(SOUND_INCREMENT_COMMAND));
-            Serial.print(data.soundIncrement);
+            Serial.print(data.soundIncrementDuration);
         }
     #endif
-    if (data.inDebug) Serial.print(F(", déverminage"));
-    Serial.println(data.isActive ? F(", en marche") : F(", à l'arrêt"));
+    #ifdef VERSION_FRANCAISE
+        if (data.inDebug) Serial.print(F(", déverminage"));
+        Serial.println(data.isActive ? F(", en marche") : F(", à l'arrêt"));
+    #else
+        if (data.inDebug) Serial.print(F(", debug"));
+        Serial.println(data.isActive ? F(", running") : F(", stopped"));
+    #endif
 }
 
 // Load settings from EEPROM
 void loadSettings(void) {
     initSettings();                                                 // Init data structure
     if (EEPROM.read(0) != MAGIC_NUMBER) {                           // Is first byte equal to magic number?
-        Serial.print(F("Magic est "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F("Magic est "));
+        #else
+            Serial.print(F("Magic is "));
+        #endif
         Serial.print(EEPROM.read(0));
-        Serial.print(F(", pas "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F(", pas "));
+        #else
+            Serial.print(F(", not "));
+        #endif
         Serial.print(MAGIC_NUMBER);
         Serial.println(F("!"));
         return;
@@ -453,9 +497,17 @@ void loadSettings(void) {
     } else if (version == 2) {
         EEPROM.get(0, data);                                        // Load EEPROM V2 structure
     } else {
-        Serial.print(F("Version est "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F("Version est "));
+        #else
+            Serial.print(F("Version is "));
+        #endif
         Serial.print(version);
-        Serial.print(F(", pas "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F(", pas "));
+        #else
+            Serial.print(F(", not "));
+        #endif
         Serial.print(EEPROM_VERSION);
         Serial.println(F("!"));
         return;
@@ -490,7 +542,7 @@ void initSettings(void) {
     data.fillSound = 1;                                             // Fill sound index
     data.unloadSound = 2;                                           // Unload sound index
     data.soundVolume = 15;                                          // Sound volume
-    data.soundIncrement = 500;                                      // Sound increment
+    data.soundIncrementDuration = 500UL;                                    // Sound increment
 }
 
 // Reset serial input buffer
@@ -587,7 +639,11 @@ void workWithSerial(void) {
             // Keep only "A" to "Z", "a" to "z" and "0" to "9"
             if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
                 if (bufferLen >= BUFFER_LENGHT - 1) {
-                    Serial.println(F("Buffer plein - Reset!"));
+                    #ifdef VERSION_FRANCAISE
+                        Serial.println(F("Buffer plein - Reset!"));
+                    #else
+                        Serial.println(F("Buffer full - Reset!"));
+                    #endif
                     resetInputBuffer();
                 }
                 inputBuffer[bufferLen++] = c;
@@ -621,11 +677,19 @@ bool isCommandValue(char* inputBuffer, char* commandToCheck, uint16_t minValue, 
     commandValue = atoi(&inputBuffer[strlen(commandToCheck)]);      // Convert given value
     if (commandValue < minValue || commandValue > maxValue) {       // Check limits
         Serial.print(commandValue);
-        Serial.print(F(" hors limites "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F(" hors limites "));
+        #else
+            Serial.print(F(" out of limits "));
+        #endif
         Serial.print(minValue);
         Serial.print(F("-"));
         Serial.print(maxValue);
-        Serial.print(F(" pour la commande "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F(" pour la commande "));
+        #else
+            Serial.print(F(" for command "));
+        #endif
         Serial.println(commandToCheck);
         return false;
     }
@@ -635,7 +699,11 @@ bool isCommandValue(char* inputBuffer, char* commandToCheck, uint16_t minValue, 
 //  Stop train
 void stopTrain(void) {
     if (data.inDebug) {
-        Serial.print(F("Arrêt du train à "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F("Arrêt du train à "));
+        #else
+            Serial.print(F("Train stop at "));
+        #endif
         Serial.println(millis());
     }
     // Close isolation relay
@@ -645,7 +713,11 @@ void stopTrain(void) {
 // Start filling
 void startFilling(void) {
     if (data.inDebug) {
-        Serial.print(F("Début chargement à "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F("Début chargement à "));
+        #else
+            Serial.print(F("Starting load at "));
+        #endif
         Serial.println(millis());
     }
     setRelay(CLOSE_RELAY, RELAY_OPENED);
@@ -658,9 +730,17 @@ void startFilling(void) {
 // Stop filling
 void stopFilling(void) {
     if (data.inDebug) {
-        Serial.print(F("Fin chargement à "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F("Fin chargement à "));
+        #else
+            Serial.print(F("Ending load at "));
+        #endif
         Serial.print(millis());
-        Serial.print(F(", durée "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F(", durée "));
+        #else
+            Serial.print(F(", duration "));
+        #endif
         Serial.println(millis() - waitFilledTimer);
     }
     setRelay(OPEN_RELAY, RELAY_OPENED);
@@ -676,7 +756,11 @@ void stopFilling(void) {
 //  Start train
 void startTrain(void) {
     if (data.inDebug) {
-        Serial.print(F("Départ du train à "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F("Départ du train à "));
+        #else
+            Serial.print(F("Starting train at "));
+        #endif
         Serial.println(millis());
     }
     // Open isolation relay
@@ -688,7 +772,11 @@ void startTrain(void) {
     void startUnloading(void) {
         if (!unloadingVibrationActive) {
             if (data.inDebug) {
-                Serial.print(F("Début déchargement à "));
+                #ifdef VERSION_FRANCAISE
+                    Serial.print(F("Début déchargement à "));
+                #else
+                    Serial.print(F("Starting unload at "));
+                #endif
                 Serial.println(millis());
             }
             startVibration();
@@ -700,7 +788,11 @@ void startTrain(void) {
     // Start vibration relay
     void startVibration(void) {
         if (data.inDebug) {
-            Serial.print(F("Début vibrations à "));
+            #ifdef VERSION_FRANCAISE
+                Serial.print(F("Début vibrations à "));
+            #else
+                Serial.print(F("Starting vibrations at "));
+            #endif
             Serial.println(millis());
         }
         setRelay(VIBRATION_RELAY, RELAY_CLOSED);
@@ -709,7 +801,11 @@ void startTrain(void) {
     // Stop vibration relay
     void stopVibration(void) {
         if (data.inDebug) {
-            Serial.print(F("Fin vibrations à "));
+            #ifdef VERSION_FRANCAISE
+                Serial.print(F("Fin vibrations à "));
+            #else
+                Serial.print(F("Ending vibrations at "));
+            #endif
             Serial.println(millis());
         }
         setRelay(VIBRATION_RELAY, RELAY_OPENED);
@@ -726,37 +822,69 @@ void displayIlsState(void) {
 
 // Print help message
 void printHelp(void) {
-    Serial.print(F(ILS_ACTIVATION1_COMMAND)); Serial.print(F("1-10 : ILS 1 (numéro) => ")); Serial.println(data.activationIls1);
-    Serial.print(F(ILS_ACTIVATION2_COMMAND)); Serial.print(F("0-10 : ILS 2 (numéro) => ")); Serial.println(data.activationIls2);
-    Serial.print(F(ILS_ACTIVATION3_COMMAND)); Serial.print(F("0-10 : ILS 3 (numéro) => ")); Serial.println(data.activationIls3);
-    Serial.print(F(RELAY_PULSE_DURATION_COMMAND)); Serial.print(F("1-999 : Durée Impulsion relai (ms) => ")); Serial.println(data.pulseTime);
-    #ifdef VIBRATION_RELAY
-        Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.print(F("1-9999 : Durée Remplissage wagon (ms) => ")); Serial.println(data.fillingTime);
-        Serial.print(F(LOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Vibrations Remplissage (ms) => ")); Serial.println(data.loadDelay);
-        Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Retard Vidage vibration (ms) => ")); Serial.println(data.unloadDelay);
-        Serial.print(F(RECLOSE_DELAY_COMMAND)); Serial.print(F("0-9999 : Répétition fermeture (ms) => ")); Serial.println(data.repeatCloseDelay);
+    #ifdef VERSION_FRANCAISE
+        Serial.print(F(ILS_ACTIVATION1_COMMAND)); Serial.print(F("1-10 : ILS 1 (number) => ")); Serial.println(data.activationIls1);
+        Serial.print(F(ILS_ACTIVATION2_COMMAND)); Serial.print(F("0-10 : ILS 2 (number) => ")); Serial.println(data.activationIls2);
+        Serial.print(F(ILS_ACTIVATION3_COMMAND)); Serial.print(F("0-10 : ILS 3 (number) => ")); Serial.println(data.activationIls3);
+        Serial.print(F(RELAY_PULSE_DURATION_COMMAND)); Serial.print(F("1-999 : Relay Impulsion Duration (ms) => ")); Serial.println(data.pulseTime);
+        #ifdef VIBRATION_RELAY
+            Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.print(F("1-9999 : Durée Remplissage wagon (ms) => ")); Serial.println(data.fillingTime);
+            Serial.print(F(LOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Vibrations Remplissage (ms) => ")); Serial.println(data.loadDelay);
+            Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Retard Vidage vibration (ms) => ")); Serial.println(data.unloadDelay);
+            Serial.print(F(RECLOSE_DELAY_COMMAND)); Serial.print(F("0-9999 : Répétition fermeture (ms) => ")); Serial.println(data.repeatCloseDelay);
+        #endif
+        Serial.print(F(WAIT_AFTER_STOP_COMMAND)); Serial.print(F("0-9999 : Attente après Arrêt (ms) => ")); Serial.println(data.waitAfterStop);
+        Serial.print(F(WAIT_AFTER_FILL_COMMAND)); Serial.print(F("0-9999 : Attente après remplissage (ms) => ")); Serial.println(data.waitAfterFill);
+        #ifdef MP3_PIN
+            Serial.print(F(FILL_SOUND_COMMAND)); Serial.print(F("0-99 : Son chargement => ")); Serial.println(data.fillSound);
+            Serial.print(F(UNLOAD_SOUND_COMMAND)); Serial.print(F("0-99 : Son déchargement => ")); Serial.println(data.unloadSound);
+            Serial.print(F(SOUND_VOLUME_COMMAND)); Serial.print(F("0-30 : Volume son => ")); Serial.println(data.soundVolume);
+            Serial.print(F(SOUND_INCREMENT_COMMAND)); Serial.print(F("0-999 : Incrément son (ms) => ")); Serial.println(data.soundIncrementDuration);
+            Serial.print(F(TEST_SOUND_COMMAND)); Serial.print(F("1-99 : Test son")); Serial.println();
+        #endif
+        Serial.print(F(START_COMMAND)); Serial.print(F(" : Marche")); Serial.println();
+        Serial.print(F(STOP_COMMAND)); Serial.print(F(" : Arrêt")); Serial.println();
+        Serial.print(F(EMERGENCY_COMMAND)); Serial.print(F(" : arrêt d'Urgence")); Serial.println();
+        Serial.print(F(ILS_STATE_COMMAND)); Serial.print(F(" : Etat ILS")); Serial.println();
+        Serial.print(F(OPEN_RELAY_COMMAND)); Serial.print(F(" : Ouverture trémie")); Serial.println();
+        Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.print(F(" : Fermeture trémie")); Serial.println();
+        Serial.print(F(STOP_TRAIN_COMMAND)); Serial.print(F(" : Arrêt du train")); Serial.println();
+        Serial.print(F(START_TRAIN_COMMAND)); Serial.print(F(" : Démarrage du train")); Serial.println();
+        Serial.print(F(DEBUG_TOGGLE_COMMAND)); Serial.print(F(" : Bascule déverminage")); Serial.println();
+        Serial.print(F(DISPLAY_VARIABLES_COMMAND)); Serial.print(F(" : Afficher variables")); Serial.println();
+        Serial.print(F(INIT_COMMAND)); Serial.println(F(" : Initialisation globale"));
+    #else
+        Serial.print(F(ILS_ACTIVATION1_COMMAND)); Serial.print(F("1-10 : ILS 1 (numéro) => ")); Serial.println(data.activationIls1);
+        Serial.print(F(ILS_ACTIVATION2_COMMAND)); Serial.print(F("0-10 : ILS 2 (numéro) => ")); Serial.println(data.activationIls2);
+        Serial.print(F(ILS_ACTIVATION3_COMMAND)); Serial.print(F("0-10 : ILS 3 (numéro) => ")); Serial.println(data.activationIls3);
+        Serial.print(F(RELAY_PULSE_DURATION_COMMAND)); Serial.print(F("1-999 : Durée Impulsion relai (ms) => ")); Serial.println(data.pulseTime);
+        #ifdef VIBRATION_RELAY
+            Serial.print(F(WAGON_FILL_DURATION_COMMAND)); Serial.print(F("1-9999 : Wagon filling duration (ms) => ")); Serial.println(data.fillingTime);
+            Serial.print(F(LOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Filling Vibrations (ms) => ")); Serial.println(data.loadDelay);
+            Serial.print(F(UNLOAD_DELAY_COMMAND)); Serial.print(F("0-9999 : Unloading Vibration (ms) => ")); Serial.println(data.unloadDelay);
+            Serial.print(F(RECLOSE_DELAY_COMMAND)); Serial.print(F("0-9999 : Repeat Close (ms) => ")); Serial.println(data.repeatCloseDelay);
+        #endif
+        Serial.print(F(WAIT_AFTER_STOP_COMMAND)); Serial.print(F("0-9999 : Wait After Stop (ms) => ")); Serial.println(data.waitAfterStop);
+        Serial.print(F(WAIT_AFTER_FILL_COMMAND)); Serial.print(F("0-9999 : Wait After Filling (ms) => ")); Serial.println(data.waitAfterFill);
+        #ifdef MP3_PIN
+            Serial.print(F(FILL_SOUND_COMMAND)); Serial.print(F("0-99 : Loading Sound => ")); Serial.println(data.fillSound);
+            Serial.print(F(UNLOAD_SOUND_COMMAND)); Serial.print(F("0-99 : Unloading Sound => ")); Serial.println(data.unloadSound);
+            Serial.print(F(SOUND_VOLUME_COMMAND)); Serial.print(F("0-30 : Sound Volume => ")); Serial.println(data.soundVolume);
+            Serial.print(F(SOUND_INCREMENT_COMMAND)); Serial.print(F("0-999 : Sound Increment (ms) => ")); Serial.println(data.soundIncrementDuration);
+            Serial.print(F(TEST_SOUND_COMMAND)); Serial.print(F("1-99 : Sound Test")); Serial.println();
+        #endif
+        Serial.print(F(START_COMMAND)); Serial.print(F(" : Run")); Serial.println();
+        Serial.print(F(STOP_COMMAND)); Serial.print(F(" : Stop")); Serial.println();
+        Serial.print(F(EMERGENCY_COMMAND)); Serial.print(F(" : Emergency Stop")); Serial.println();
+        Serial.print(F(ILS_STATE_COMMAND)); Serial.print(F(" : ILS State")); Serial.println();
+        Serial.print(F(OPEN_RELAY_COMMAND)); Serial.print(F(" : Open Hopper")); Serial.println();
+        Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.print(F(" : Close Hopper")); Serial.println();
+        Serial.print(F(STOP_TRAIN_COMMAND)); Serial.print(F(" : Stop Train")); Serial.println();
+        Serial.print(F(START_TRAIN_COMMAND)); Serial.print(F(" : Run Train")); Serial.println();
+        Serial.print(F(DEBUG_TOGGLE_COMMAND)); Serial.print(F(" : Toggle Debug")); Serial.println();
+        Serial.print(F(DISPLAY_VARIABLES_COMMAND)); Serial.print(F(" : Display Variables")); Serial.println();
+        Serial.print(F(INIT_COMMAND)); Serial.print(F(" : Global Initialisztion")); Serial.println();
     #endif
-    Serial.print(F(WAIT_AFTER_STOP_COMMAND)); Serial.print(F("0-9999 : Attente après Arrêt (ms) => ")); Serial.println(data.waitAfterStop);
-    Serial.print(F(WAIT_AFTER_FILL_COMMAND)); Serial.print(F("0-9999 : Attente après remplissage (ms) => ")); Serial.println(data.waitAfterFill);
-    #ifdef MP3_PIN
-        Serial.print(F(FILL_SOUND_COMMAND)); Serial.print(F("0-99 : Son chargement => ")); Serial.println(data.fillSound);
-        Serial.print(F(UNLOAD_SOUND_COMMAND)); Serial.print(F("0-99 : Son déchargement => ")); Serial.println(data.unloadSound);
-        Serial.print(F(SOUND_VOLUME_COMMAND)); Serial.print(F("0-30 : Volume son => ")); Serial.println(data.soundVolume);
-        Serial.print(F(SOUND_INCREMENT_COMMAND)); Serial.print(F("0-999 : Incrément son (ms) => ")); Serial.println(data.soundIncrement);
-        Serial.print(F(TEST_SOUND_COMMAND)); Serial.print(F("1-99 : Test son")); Serial.println();
-    #endif
-    Serial.print(F(START_COMMAND)); Serial.print(F(" : Marche")); Serial.println();
-    Serial.print(F(STOP_COMMAND)); Serial.print(F(" : Arrêt")); Serial.println();
-    Serial.print(F(EMERGENCY_COMMAND)); Serial.print(F(" : arrêt d'Urgence")); Serial.println();
-    Serial.print(F(ILS_STATE_COMMAND)); Serial.print(F(" : Etat ILS")); Serial.println();
-    Serial.print(F(OPEN_RELAY_COMMAND)); Serial.print(F(" : Ouverture trémie")); Serial.println();
-    Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.print(F(" : Fermeture trémie")); Serial.println();
-    Serial.print(F(STOP_TRAIN_COMMAND)); Serial.print(F(" : Arrêt du train")); Serial.println();
-    Serial.print(F(START_TRAIN_COMMAND)); Serial.print(F(" : Démarrage du train")); Serial.println();
-    Serial.print(F(DEBUG_TOGGLE_COMMAND)); Serial.print(F(" : Bascule déverminage")); Serial.println();
-    Serial.print(F(INIT_COMMAND)); Serial.print(F(" : Initialisation globale")); Serial.println();
-    Serial.print(F(DISPLAY_VARIABLES_COMMAND)); Serial.print(F(" : Afficher variables")); Serial.println();
-    Serial.print(F(INIT_COMMAND)); Serial.println(F(" : Initialisation globale"));
 }
 
 // Toggle  debug flag
@@ -776,7 +904,11 @@ void reinitAll(void) {
 void executeCommand(void) {
     #ifndef DISPLAY_KEYBOARD_INPUT
         Serial.println(F(""));
-        Serial.print(F("Reçu: "));
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F("Reçu : "));
+        #else
+            Serial.print(F("Received: "));
+        #endif
     #endif
     Serial.println(inputBuffer);
     if (isCommand(inputBuffer, (char*) INIT_COMMAND)) {
@@ -846,7 +978,7 @@ void executeCommand(void) {
             data.soundVolume = commandValue;
             saveSettings();
         } else if (isCommandValue(inputBuffer, (char*) SOUND_INCREMENT_COMMAND, 0, 999)) {
-            data.soundIncrement = commandValue;
+            data.soundIncrementDuration = commandValue;
             saveSettings();
         } else if (isCommandValue(inputBuffer, (char*) TEST_SOUND_COMMAND, 1, 99)) {
             playSound(commandValue);
@@ -888,7 +1020,11 @@ void displayVariables(void) {
         }
     }
     Serial.println();
-    Serial.println(F("Relai : OFVA"));
+    #ifdef VERSION_FRANCAISE
+        Serial.println(F("Relai : OFVA"));
+    #else
+        Serial.println(F("Relay : OCVS"));
+    #endif
     Serial.print(F(  "        "));
     for (uint8_t i = 0; i<4; i++) {
         if (relayState[i] == RELAY_CLOSED) {
@@ -908,7 +1044,11 @@ void setRelay(uint8_t index, uint8_t state){
     if (index == OPEN_RELAY && state == RELAY_CLOSED) {
         doorOpened = true;
         if (data.inDebug) {
-            Serial.println(F("Ouverture trémie"));
+            #ifdef VERSION_FRANCAISE
+                Serial.println(F("Ouverture trémie"));
+            #else
+                Serial.println(F("Opening hopper"));
+            #endif
         }
     }
     if (index == CLOSE_RELAY && state == RELAY_CLOSED) {
@@ -918,7 +1058,11 @@ void setRelay(uint8_t index, uint8_t state){
         #endif
         doorOpened = false;
         if (data.inDebug) {
-            Serial.println(F("Fermerture trémie"));
+            #ifdef VERSION_FRANCAISE
+                Serial.println(F("Fermerture trémie"));
+            #else
+                Serial.println(F("Closing hopper"));
+            #endif
         }
     }
     if (index == CLOSE_RELAY || index == OPEN_RELAY) {
@@ -937,10 +1081,10 @@ void setRelay(uint8_t index, uint8_t state){
     // Play a sound
     void playSound(uint8_t index) {
         if (data.soundVolume && index) {                            // Only if volume and index set
-            if (data.soundIncrement && data.soundVolume > 1) {      // Sound increment and target volume > 1?
+            if (data.soundIncrementDuration && data.soundVolume > 1) {      // Sound increment and target volume > 1?
                 soundVolume = 1;                                    // Start at volume 1
                 soundIncrement = 1;                                 // Increase sound
-                soundChangeDuration = soundIncrement / data.soundVolume; // Wait time between increments
+                soundChangeDuration = data.soundIncrementDuration / data.soundVolume; // Wait time between increments
                 lastSoundChangeTime = millis();                     // Set last volume change time
 
             } else {
@@ -956,10 +1100,10 @@ void setRelay(uint8_t index, uint8_t state){
     // Stop playing a sound
     void stopSound(void) {
         if (data.soundVolume) {                                     // Only if volume set
-            if (data.soundIncrement && data.soundVolume > 1) {      // Sound increment and target volume > 1?
+            if (data.soundIncrementDuration && data.soundVolume > 1) {      // Sound increment and target volume > 1?
                 soundVolume -= 1;                                   // Start at volume - 1
                 soundIncrement = -1;                                // Decrease sound
-                soundChangeDuration = soundIncrement / data.soundVolume; // Wait time between increments
+                soundChangeDuration = data.soundIncrementDuration / data.soundVolume; // Wait time between increments
                 lastSoundChangeTime = millis();                     // Set last volume change time
 
             } else {
@@ -994,9 +1138,17 @@ void setup(void){
     initIO();
     Serial.begin(115200);
     Serial.println();
-    Serial.print(F("Chargeur de ballast à l'arrêt "));
+    #ifdef VERSION_FRANCAISE
+        Serial.print(F("Chargeur de ballast à l'arrêt "));
+    #else
+        Serial.print(F("Ballast loader (train stopped) "));
+    #endif
     Serial.print(CODE_VERSION);
-    Serial.println(F(" lancé..."));
+    #ifdef VERSION_FRANCAISE
+        Serial.println(F(" lancé ..."));
+    #else
+        Serial.println(F(" started..."));
+    #endif
     resetInputBuffer();
     initSettings();
     loadSettings();
@@ -1025,16 +1177,28 @@ void loop(void){
                 if ((now - debouncer[i].lastChangeTime) > 50) {     // Is pin stable for 50 ms?
                     debouncer[i].isClosed = debouncer[i].lastWasClosed; // Load state with last stable one
                     if (data.inDebug) {
-                        Serial.print(debouncer[i].isClosed?F("Fermeture"):F("Ouverture"));
+                        #ifdef VERSION_FRANCAISE
+                            Serial.print(debouncer[i].isClosed?F("Fermeture"):F("Ouverture"));
+                        #else
+                            Serial.print(debouncer[i].isClosed?F("Closing"):F("Opening"));
+                        #endif
                         Serial.print(F(" ILS "));
                         if (i == 3){                                // Is this unloading ILS
-                            Serial.print(F("déchargement"));
+                            #ifdef VERSION_FRANCAISE
+                                Serial.print(F("déchargement"));
+                            #else
+                                Serial.print(F("unloading"));
+                            #endif
                         } else {                                    // This is filling ILS
                             Serial.print(debouncer[i].dataIndex);
                         }
                     }
                     if (data.inDebug) {
-                        Serial.print(" à ");
+                        #ifdef VERSION_FRANCAISE
+                            Serial.print(" à ");
+                        #else
+                            Serial.print(" at ");
+                        #endif
                         Serial.print(millis());
                     }
                     if (debouncer[i].isClosed) {                    // Are we now closed?
@@ -1056,14 +1220,22 @@ void loop(void){
                                     waitAfterStopTimer = millis();  // Set timer
                                 } else {
                                     if (data.inDebug) {
-                                        Serial.print(F(" ignorée, état="));
+                                        #ifdef VERSION_FRANCAISE
+                                            Serial.print(F(" ignorée, état="));
+                                        #else
+                                            Serial.print(F(" ignored, state="));
+                                        #endif
                                         Serial.println(stateMachine);
                                     }
                                 }
                             }
                         } else {                                    // On n'est pas en mode actif
                             if (data.inDebug) {
-                                Serial.println(F(" ignorée, process à l'arrêt"));
+                                #ifdef VERSION_FRANCAISE
+                                    Serial.println(F(" ignorée, process à l'arrêt"));
+                                #else
+                                    Serial.println(F(" ignored, process stopped"));
+                                #endif
                             }
                         }
                     } else {
@@ -1101,9 +1273,17 @@ void loop(void){
     // Do we need to close any relay after pulse?
     if (relayPulseActive && ((now - relayPulseTimer) >= data.pulseTime)) {
         if (data.inDebug) {
-            Serial.print(F("Fin impulsion à "));
+            #ifdef VERSION_FRANCAISE
+                Serial.print(F("Fin impulsion à "));
+            #else
+                Serial.print(F("Fin impulsion à "));
+            #endif
             Serial.print(now);
-            Serial.print(F(", durée "));
+            #ifdef VERSION_FRANCAISE
+                Serial.print(F(", durée "));
+            #else
+                Serial.print(F(", duration "));
+            #endif
             Serial.println(now - relayPulseTimer);
         }
         for (uint8_t i = 0; i < 2; i++) {
@@ -1131,8 +1311,8 @@ void loop(void){
 
     #ifdef MP3_PIN
         // Are we in volume change with delay expired?
-        if (lastSoundChangeTime && ((millis - lastSoundChangeTime) >= soundChangeDuration)) {
-            changeVolume();                                         // Icrease/decrease volume
+        if (lastSoundChangeTime && ((millis() - lastSoundChangeTime) >= soundChangeDuration)) {
+            changeVolume();                                         // Increase/decrease volume
         }
     #endif
 
@@ -1157,7 +1337,11 @@ void loop(void){
             #ifdef VIBRATION_RELAY  
                 // Display unload vibrations ILS
                 if (digitalRead(ilsPinMapping[10]) == ILS_CLOSED) {
-                    Serial.print(F("D"));
+                    #ifdef VERSION_FRANCAISE
+                        Serial.print(F("D"));
+                    #else
+                        Serial.print(F("U"));
+                    #endif
                 } else {
                     Serial.print(F("-"));
                 }
