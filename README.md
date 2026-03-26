@@ -32,7 +32,7 @@ Settings are memorized in Arduino's EEPROM to be available after (re)start.
 
 	
 # Hardware Arduino Nano:
-	- 11 ILS inputs (10 for wagon localization during load, 1 (optional) for unloading detection). Note that electronic magnetic captors can also be used.
+	- 11 ILS inputs (10 for wagon localization during load, 1 (optional) for unloading detection). Note that electronic hall sensors (like SS49E) can also be used,
 	- 4 relays output:
         - to open hopper,
         - to close hopper,
@@ -127,7 +127,7 @@ Les réglages sont envoyés à l'Arduino au travers de sa liaison série. Ce mê
 Les réglages sont mémorisés dans l'EEPROM de l'Arduino afin d'être disponibles après son redémarrage.
 	
 # Hardware Arduino Nano:
-	- 11 entrées ILS (10 pour l'avancement du wagon lors du chargement, 1 pour la détection du déchargement)
+	- 11 entrées ILS (10 pour l'avancement du wagon lors du chargement, 1 pour la détection du déchargement). Noter que des capteurs à effet hall (comme des SS49E) peuvent aussi être utilisés.
 	- 4 sorties relais :
         - pour l'ouverture de la trémie,
         - pour sa fermeture,
