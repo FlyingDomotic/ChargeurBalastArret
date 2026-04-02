@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.3.25-2"
+#define CODE_VERSION "V26.4.2-1"
 
 #define VERSION_FRANCAISE
 
@@ -1138,7 +1138,7 @@ void loop(void){
                 debouncer[i].lastChangeTime = now;                  // Save last change time
             }
             if (debouncer[i].isClosed != debouncer[i].lastWasClosed) {  //State changed?
-                if ((now - debouncer[i].lastChangeTime) > 50) {     // Is pin stable for 50 ms?
+                if ((now - debouncer[i].lastChangeTime) > 50 && data.isActive) { // Is pin stable for 50 ms and mode active
                     debouncer[i].isClosed = debouncer[i].lastWasClosed; // Load state with last stable one
                     if (data.inDebug) {
                         #ifdef VERSION_FRANCAISE
@@ -1166,40 +1166,30 @@ void loop(void){
                         Serial.print(millis());
                     }
                     if (debouncer[i].isClosed) {                    // Are we now closed?
-                        if (data.isActive) {                        // ... with process acctive?
-                            if (i == 3){                            // Is this unloading ILS
+                        if (i == 3){                            // Is this unloading ILS
+                            if (data.inDebug) {
+                                Serial.println("");
+                            }
+                            #ifdef VIBRATION_RELAY
+                                startUnloading();               // Start unloading
+                            #endif
+                        } else {                                // This is filling ILS
+                            if (stateMachine == waitForWagon) { // Are we waiting for wagon?
                                 if (data.inDebug) {
                                     Serial.println("");
                                 }
-                                #ifdef VIBRATION_RELAY
-                                    startUnloading();               // Start unloading
-                                #endif
-                            } else {                                // This is filling ILS
-                                if (stateMachine == waitForWagon) { // Are we waiting for wagon?
-                                    if (data.inDebug) {
-                                        Serial.println("");
-                                    }
-                                    stopTrain();                    // Stop train
-                                    stateMachine = waitingAfterStop;// Set next step
-                                    waitAfterStopTimer = millis();  // Set timer
-                                } else {
-                                    if (data.inDebug) {
-                                        #ifdef VERSION_FRANCAISE
-                                            Serial.print(F(" ignorée, état="));
-                                        #else
-                                            Serial.print(F(" ignored, state="));
-                                        #endif
-                                        Serial.println(stateMachine);
-                                    }
+                                stopTrain();                    // Stop train
+                                stateMachine = waitingAfterStop;// Set next step
+                                waitAfterStopTimer = millis();  // Set timer
+                            } else {
+                                if (data.inDebug) {
+                                    #ifdef VERSION_FRANCAISE
+                                        Serial.print(F(" ignorée, état="));
+                                    #else
+                                        Serial.print(F(" ignored, state="));
+                                    #endif
+                                    Serial.println(stateMachine);
                                 }
-                            }
-                        } else {                                    // On n'est pas en mode actif
-                            if (data.inDebug) {
-                                #ifdef VERSION_FRANCAISE
-                                    Serial.println(F(" ignorée, process à l'arrêt"));
-                                #else
-                                    Serial.println(F(" ignored, process stopped"));
-                                #endif
                             }
                         }
                     } else {
