@@ -28,7 +28,7 @@ For more realistic experience, you can add a MP3 module that plays a sound durin
 
 Settings are send to Arduino through its serial (USB) link. This link is also used to send feedback and messages to user.
 
-Settings are memorized in Arduino's EEPROM to be available after (re)start.
+Settings are saved in Arduino's EEPROM to be available after (re)start.
 
 	
 # Hardware Arduino Nano:
@@ -38,7 +38,7 @@ Settings are memorized in Arduino's EEPROM to be available after (re)start.
         - to close hopper,
         - for vibrator,
         - to cut power on rail.
-    - 1 MP3 output:
+    - 1 DY-SV17F sound module:
         - to play loading and unloading sound, optional.
 
 # Setting parameters:
@@ -133,7 +133,7 @@ Les réglages sont mémorisés dans l'EEPROM de l'Arduino afin d'être disponibl
         - pour sa fermeture,
         - pour le vibreur,
         - pour la coupure de l'alimentation de la voie.
-    - 1 sortie son MP3:
+    - 1 module son DY-SV17F :
         - pour jouer les sons de chargement et déchargement, optionnel.
 
 # Paramétrage :

@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.4.2-1"
+#define CODE_VERSION "V26.5.14-1"
 
 #define VERSION_FRANCAISE
 
@@ -12,7 +12,7 @@ First opens hopper while second close it.
 
 A rail has been equipped with 10 ILS regularly spaced, in order to detect a magnet placed under each wagon.
 
-When a wagon goes over one of up to three opening ILS, a relay cuts power on rail, stopping train.After a settable time, a (settable) pulse is send to opening realy. After a (settable) time, hopper is closed, a power restored after a (settable) time.
+When a wagon goes over one of up to three opening ILS, a relay cuts power on rail, stopping train.After a settable time, a (settable) pulse is send to opening relay. After a (settable) time, hopper is closed, a power restored after a (settable) time.
     
 This cycle can be repeated up to 3 times per wagon, for each wagon equipped with a magnet.
 
@@ -38,7 +38,7 @@ Settings are memorized in Arduino's EEPROM to be available after (re)start.
         - to close hopper,
         - for vibrator,
         - to cut power on rail.
-    - 1 MP3 output:
+    - 1 DY-SV17F sound module:
         - to play loading and unloading sound, optional.
 
 # Setting parameters:
@@ -689,6 +689,9 @@ void startFilling(void) {
     #ifdef VIBRATION_RELAY
         startVibration();
     #endif
+    #ifdef MP3_PIN
+        playSound(data.fillSound);
+    #endif
 }
 
 // Stop filling
@@ -713,6 +716,9 @@ void stopFilling(void) {
         // Keep vibrations after load
         fillingVibrationActive = true;
         fillingVibrationTimer = millis();
+    #endif
+    #ifdef MP3_PIN
+        stopSound();
     #endif
 
 }
@@ -745,6 +751,9 @@ void startTrain(void) {
             }
             startVibration();
         }
+        #ifdef MP3_PIN
+            playSound(data.fillSound);
+        #endif
         unloadingVibrationActive = true;                            // Start unloading vibrations
         unloadingVibrationTimer = millis();                         // Set unload vibration timer
     }
@@ -1040,6 +1049,8 @@ void setRelay(uint8_t index, uint8_t state){
     void soundSetup(void) {
         mp3Player.set_storage(mp3Player.STORAGE_FLASH);			    // Use files in flash (should be downloaded before using USB)
         mp3Player.set_play_mode(mp3Player.PLAY_TRACK_REPEAT);       // Repeat track forever
+        // Arrête le son
+        stopSound();
     }
 
     // Play a sound
@@ -1138,7 +1149,7 @@ void loop(void){
                 debouncer[i].lastChangeTime = now;                  // Save last change time
             }
             if (debouncer[i].isClosed != debouncer[i].lastWasClosed) {  //State changed?
-                if ((now - debouncer[i].lastChangeTime) > 50 && data.isActive) { // Is pin stable for 50 ms and mode active
+                if ((now - debouncer[i].lastChangeTime) > 30 && data.isActive) { // Is pin stable for 50 ms and mode active
                     debouncer[i].isClosed = debouncer[i].lastWasClosed; // Load state with last stable one
                     if (data.inDebug) {
                         #ifdef VERSION_FRANCAISE
@@ -1253,6 +1264,7 @@ void loop(void){
             if (((now - fillingVibrationTimer) >= data.loadDelay)
                     && ((now - unloadingVibrationTimer) >= data.unloadDelay)) {
                 stopVibration();
+                stopSound();
             }
         }
 
