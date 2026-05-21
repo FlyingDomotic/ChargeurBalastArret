@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.5.14-1"
+#define CODE_VERSION "V26.5.21-1"
 
 #define VERSION_FRANCAISE
 
@@ -164,7 +164,7 @@ License: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 //  Parameters
 
 #define MAGIC_NUMBER 56                                             // EEPROM magic byte
-#define EEPROM_VERSION 1                                            // EEPROM version
+#define EEPROM_VERSION 2                                            // EEPROM version
 #define BUFFER_LENGHT 50                                            // Serial input buffer length
 #define ILS_CLOSED LOW                                              // State read when ILS is closed
 #define RELAY_CLOSED LOW                                            // State to write to close relay
@@ -291,10 +291,10 @@ void startTrain(void);                                              // Start tra
     void stopVibration(void);                                       // Stop vibration relay
 #endif
 #ifdef MP3_PIN
-    void soundSetup();                                              // Setup sound chip
+    void soundSetup(void);                                          // Setup sound chip
     void playSound(uint8_t index);                                  // Play sound index
     void stopSound(void);                                           // Stop playing sound
-    void changeVolume();                                            // Change current volume
+    void changeVolume(void);                                        // Change current volume
 #endif
 void displayIlsState(void);                                         // Display all ILS state
 void printHelp(void);                                               // Print help message
@@ -426,6 +426,12 @@ void loadSettings(void) {
     }
 
     uint8_t version = EEPROM.read(1);                               // Get version
+    #ifdef VERSION_FRANCAISE
+        Serial.print(F("Paramètres V"));
+    #else
+        Serial.print(F("Parameters V"));
+    #endif
+    Serial.print(version);
     if (version == 1) {
         // EEPROM data (V1 version)
         struct eepromDataV1_s {
@@ -458,19 +464,22 @@ void loadSettings(void) {
         data.repeatCloseDelay =  dataV1.repeatCloseDelay;
         data.waitAfterStop =  dataV1.waitAfterStop;
         data.waitAfterFill =  dataV1.waitAfterFill;
+        data.version = 2;
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F(" convertie en V"));
+        #else
+            Serial.print(F(" converted to V"));
+        #endif
+        Serial.println(data.version);
+        saveSettings();
     } else if (version == 2) {
         EEPROM.get(0, data);                                        // Load EEPROM V2 structure
+        Serial.println();
     } else {
         #ifdef VERSION_FRANCAISE
-            Serial.print(F("Version est "));
+            Serial.print(F(", pas V"));
         #else
-            Serial.print(F("Version is "));
-        #endif
-        Serial.print(version);
-        #ifdef VERSION_FRANCAISE
-            Serial.print(F(", pas "));
-        #else
-            Serial.print(F(", not "));
+            Serial.print(F(", not V"));
         #endif
         Serial.print(EEPROM_VERSION);
         Serial.println(F("!"));
@@ -599,12 +608,15 @@ void workWithSerial(void) {
             resetInputBuffer();
         } else if (c == 27) {                                       // Is this an <ESC>?
             emergencyStop();
+        } else if (c == '?') {                                      // Is this a "?" ?
+            printHelp();
+            resetInputBuffer();
         } else if (c) {                                             // Is this not null?
             // Keep only "A" to "Z", "a" to "z" and "0" to "9"
             if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
                 if (bufferLen >= BUFFER_LENGHT - 1) {
                     #ifdef VERSION_FRANCAISE
-                        Serial.println(F("Buffer plein - Reset!"));
+                        Serial.println(F("Buffer plein - RAZ !"));
                     #else
                         Serial.println(F("Buffer full - Reset!"));
                     #endif
@@ -1047,7 +1059,7 @@ void setRelay(uint8_t index, uint8_t state){
 #ifdef MP3_PIN
     // Init sound chip
     void soundSetup(void) {
-        mp3Player.set_storage(mp3Player.STORAGE_FLASH);			    // Use files in flash (should be downloaded before using USB)
+        mp3Player.set_storage(mp3Player.STORAGE_SD);			    // Use files on SD (should be downloaded before using USB)
         mp3Player.set_play_mode(mp3Player.PLAY_TRACK_REPEAT);       // Repeat track forever
         // Arrête le son
         stopSound();
@@ -1066,8 +1078,9 @@ void setRelay(uint8_t index, uint8_t state){
                 soundVolume = data.soundVolume;                     // Set directly target sound volume
                 lastSoundChangeTime = 0;                            // Clear last volume set time
             }
-            mp3Player.set_volume(soundVolume);                      // Set volume
+            Serial.print("Play sound "); Serial.print(index); Serial.print(", volume "); Serial.println(soundVolume);
             mp3Player.set_track_index(index);                       // Set track index to play
+            mp3Player.set_volume(soundVolume);                      // Set volume
             mp3Player.play();                                       // Play track
         }
     }
@@ -1088,13 +1101,14 @@ void setRelay(uint8_t index, uint8_t state){
             mp3Player.set_volume(soundVolume);                      // Set volume
             if (!soundVolume) {                                     // Is volume set to zero?
                 mp3Player.stop();                                   // Stop player
+                lastSoundChangeTime = 0;                            // Clear last volume set time
             }
         }
 
     }
 
     // Set sound volume giving increase/decrease
-    void changeVolume() {
+    void changeVolume(void) {
         soundVolume += soundIncrement;                              // Increment/decrement sound
         if (soundVolume < data.soundVolume && soundVolume > 0) {    // We're not yet at target sound
             lastSoundChangeTime = millis();                         // Set last volume change time
@@ -1104,6 +1118,7 @@ void setRelay(uint8_t index, uint8_t state){
         mp3Player.set_volume(soundVolume);                          // Set new volume
         if (!soundVolume) {                                         // Volume = 0?
             mp3Player.stop();                                       // Stop player
+            lastSoundChangeTime = 0;                                // Reset last volume change time
         }
     }
 #endif
