@@ -24,7 +24,7 @@ In addition, it's possible to add a supplemental ILS on unloading zone, that'll 
 
 On certain hopper models, it may happen that vibrations (re)open hopper. To counter balance this tendency, it's possible to define a re-closing delay, which will resend a closing pulse at regular interval as long as vibrations are active.
 
-For more realistic experience, you can add a MP3 module that plays a sound during wagon loading, and another one during unloading. This module is not mandatory, don't add it if not useful. Still in the sale realistic spirit, sound can increase from 0 to its (settable) value over a (settable) time at loafing start, and decrease it from its maximum value to 0 at end of load.
+For more realistic experience, you can add a MP3 module that plays a sound during wagon loading, and another one during unloading. This module is not mandatory, don't add it if not useful. Still in the sale realistic spirit, sound can increase from 0 to its (settable) value over a (settable) time at loafing start, and decrease it from its maximum value to 0 at end of load. It's also possible to anticipate filling sound specifying advance time, as time to start sound playing before opening hopper.
 
 Settings are send to Arduino through its serial (USB) link. This link is also used to send feedback and messages to user.
 
@@ -75,6 +75,7 @@ Settings are saved in Arduino's EEPROM to be available after (re)start.
     - TS1-99 : Test sound
     - SV0-30 : Sound Volume
     - SI0-999 : Sound Increment (ms)
+    - SA0-9999 : Sound Advance (ms)
     - R : Run
     - S : Stop
     - E : Emergency Stop
@@ -120,7 +121,7 @@ De plus, il est possible d'ajouter un ILS supplémentaire sur la zone de déchar
 
 Sur certains modèles de trémie, il arrive que ces vibrations (ré)ouvrent la trémie. Pour contrer cette tendance, il est possible de définir un délai de refermeture de la trémie, qui renverra une impulsion de fermeture à intervalle régulier tant que les vibrations seront actives.
 
-Pour plus de réalisme, on peut ajouter un module MP3 qui permet de jouer un son pendant le chargement des wagons et un autre pendant le déchargement. Ce module n'est pas obligatoire, ne pas l'installer si inutile. Toujours dans le même souci de réalisme, le son augmente de 0 à sa valeur maximale sur une dure fixée au début du chargement, et réduit de sa valeur maximale à 0 sur la même durée à la fin du chargement.
+Pour plus de réalisme, on peut ajouter un module MP3 qui permet de jouer un son pendant le chargement des wagons et un autre pendant le déchargement. Ce module n'est pas obligatoire, ne pas l'installer si inutile. Toujours dans le même souci de réalisme, le son augmente de 0 à sa valeur maximale sur une dure fixée au début du chargement, et réduit de sa valeur maximale à 0 sur la même durée à la fin du chargement. Il est également possible d'anticiper le lancement du son de remplissage avant l'ouverture de la trémie.
 
 Les réglages sont envoyés à l'Arduino au travers de sa liaison série. Ce même moyen est utilisé pour envoyer les messages à l'utilisateur.
 
@@ -170,6 +171,7 @@ Les réglages sont mémorisés dans l'EEPROM de l'Arduino afin d'être disponibl
     - TS1-99 : Numéro du son à jouer en test
     - V0-30 : volume du son (0 si inutile)
     - IS0-999 : durée d'incrément du son (ms)
+    - IS0-999 : Incrément son (ms)
     - M : Marche (détection passage wagon activée)
     - A : Arrêt (stoppe la détection des wagons)
     - E : Etat ILS

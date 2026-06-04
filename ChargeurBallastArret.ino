@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.6.4-1"
+#define CODE_VERSION "V26.6.4-2"
 
 #define VERSION_FRANCAISE
 
@@ -75,6 +75,7 @@ Settings are memorized in Arduino's EEPROM to be available after (re)start.
     - TS1-99 : Test sound
     - SV0-30 : Sound Volume
     - SI0-999 : Sound Increment (ms)
+    - SA0-9999 : Sound Advance (ms)
     - R : Run
     - S : Stop
     - E : Emergency Stop
@@ -87,7 +88,7 @@ Settings are memorized in Arduino's EEPROM to be available after (re)start.
     - INIT : Global Initialization
     - DV : Display Variables
 
-## Pushing <ESC> (sometimes wtriing Escape):
+## Pushing <ESC> (sometimes written Escape):
     - Emergency stop:
         - Stop process,
         - Close hopper,
@@ -121,6 +122,7 @@ License: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
     #define TEST_SOUND_COMMAND "TS"
     #define SOUND_VOLUME_COMMAND "V"
     #define SOUND_INCREMENT_COMMAND "IS"
+    #define SOUND_ADVANCE_COMMAND "SA"
     #define START_COMMAND "M"
     #define STOP_COMMAND "A"
     #define EMERGENCY_COMMAND "U"
@@ -148,6 +150,7 @@ License: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
     #define TEST_SOUND_COMMAND "TS"
     #define SOUND_VOLUME_COMMAND "SV"
     #define SOUND_INCREMENT_COMMAND "SI"
+    #define SOUND_ADVANCE_COMMAND "AS"
     #define START_COMMAND "R"
     #define STOP_COMMAND "S"
     #define EMERGENCY_COMMAND "E"
@@ -164,7 +167,7 @@ License: GNU GENERAL PUBLIC LICENSE - Version 3, 29 June 2007
 //  Parameters
 
 #define MAGIC_NUMBER 56                                             // EEPROM magic byte
-#define EEPROM_VERSION 2                                            // EEPROM version
+#define EEPROM_VERSION 3                                            // EEPROM version
 #define BUFFER_LENGHT 50                                            // Serial input buffer length
 #define ILS_CLOSED LOW                                              // State read when ILS is closed
 #define RELAY_CLOSED LOW                                            // State to write to close relay
@@ -201,6 +204,7 @@ struct eepromData_s {
     uint8_t unloadSound;                                            // Unload sound index
     uint16_t soundIncrementDuration;                                // Sound increment
     uint8_t soundVolume;                                            // Sound volume
+    uint8_t soundAdvance;                                           // Sound advance
 };
 
 bool displayIls = false;                                            // When set, continously display ILS state
@@ -397,6 +401,11 @@ void displayStatus(void) {
             Serial.print(F(SOUND_INCREMENT_COMMAND));
             Serial.print(data.soundIncrementDuration);
         }
+        if (data.soundAdvance) {
+            Serial.print(F(" "));
+            Serial.print(F(SOUND_ADVANCE_COMMAND));
+            Serial.print(data.soundAdvance);
+        }
     #endif
     #ifdef VERSION_FRANCAISE
         if (data.inDebug) Serial.print(F(", déverminage"));
@@ -466,6 +475,7 @@ void loadSettings(void) {
         data.repeatCloseDelay =  dataV1.repeatCloseDelay;
         data.waitAfterStop =  dataV1.waitAfterStop;
         data.waitAfterFill =  dataV1.waitAfterFill;
+        data.soundAdvance = 0;
         data.version = 2;
         #ifdef VERSION_FRANCAISE
             Serial.print(F(" convertie en V"));
@@ -475,6 +485,40 @@ void loadSettings(void) {
         Serial.println(data.version);
         saveSettings();
     } else if (version == 2) {
+        struct eepromDataV2_s {
+            uint8_t magicNumber;                                    // Magic number
+            uint8_t version;                                        // Structure version
+            uint8_t activationIls1;                                 // ILS number 1 to activate filling
+            uint8_t activationIls2;                                 // ILS number 2 to activate filling
+            uint8_t activationIls3;                                 // ILS number 3 to activate filling
+            uint16_t fillingTime;                                   // Time (0.001s) to fill wagon
+            uint16_t pulseTime;                                     // Time (0.001s) to send current to relay
+            bool isActive;                                          // When active flag is true, relays are triggered by ILS
+            bool inDebug;                                           // Print debug message when true
+            uint16_t loadDelay;                                     // Duration (ms) to keep vibrations after load (here even if VIBRATION_RELAY not set)
+            uint16_t unloadDelay;                                   // Duration (ms) to keep vibrations after unload (here even if VIBRATION_RELAY not set)
+            uint16_t repeatCloseDelay;                              // Duration (ms) to force close relay when vibration active and door closed
+            uint16_t waitAfterStop;                                 // Duration (ms) to wait after train stop before filling
+            uint16_t waitAfterFill;                                 // Duration (ms) to wait after filling to restart train
+            uint8_t fillSound;                                      // Fill sound index
+            uint8_t unloadSound;                                    // Unload sound index
+            uint16_t soundIncrementDuration;                        // Sound increment
+            uint8_t soundVolume;                                    // Sound volume
+            uint8_t soundAdvance;                                   // Sound advance
+        };
+        eepromDataV2_s dataV2;
+        EEPROM.get(0, dataV2);                                      // Load EEPROM V2 structure
+        memmove(&data, &dataV2, sizeof(dataV2));                      // Globally copy V2 data (new fields are at end)
+        data.soundAdvance = 0;
+        data.version = 3;
+        #ifdef VERSION_FRANCAISE
+            Serial.print(F(" convertie en V"));
+        #else
+            Serial.print(F(" converted to V"));
+        #endif
+        Serial.println(data.version);
+        saveSettings();
+    } else if (version == 3) {
         EEPROM.get(0, data);                                        // Load EEPROM V2 structure
         Serial.println();
     } else {
@@ -518,6 +562,7 @@ void initSettings(void) {
     data.unloadSound = 2;                                           // Unload sound index
     data.soundVolume = 15;                                          // Sound volume
     data.soundIncrementDuration = 500UL;                            // Sound increment
+    data.soundAdvance = 0;                                          // Sound advance
 }
 
 // Reset serial input buffer
@@ -766,7 +811,7 @@ void startTrain(void) {
             startVibration();
         }
         #ifdef MP3_PIN
-            playSound(data.fillSound);
+            playSound(data.unloadSound);
         #endif
         unloadingVibrationActive = true;                            // Start unloading vibrations
         unloadingVibrationTimer = millis();                         // Set unload vibration timer
@@ -827,6 +872,7 @@ void printHelp(void) {
             Serial.print(F(UNLOAD_SOUND_COMMAND)); Serial.print(F("0-99 : Son déchargement => ")); Serial.println(data.unloadSound);
             Serial.print(F(SOUND_VOLUME_COMMAND)); Serial.print(F("0-30 : Volume son => ")); Serial.println(data.soundVolume);
             Serial.print(F(SOUND_INCREMENT_COMMAND)); Serial.print(F("0-999 : Incrément son (ms) => ")); Serial.println(data.soundIncrementDuration);
+            Serial.print(F(SOUND_ADVANCE_COMMAND)); Serial.print(F("0-9999 : Avance Son (ms) => ")); Serial.println(data.soundAdvance);
             Serial.print(F(TEST_SOUND_COMMAND)); Serial.print(F("1-99 : Test son")); Serial.println();
         #endif
         Serial.print(F(START_COMMAND)); Serial.print(F(" : Marche")); Serial.println();
@@ -858,6 +904,7 @@ void printHelp(void) {
             Serial.print(F(UNLOAD_SOUND_COMMAND)); Serial.print(F("0-99 : Unloading Sound => ")); Serial.println(data.unloadSound);
             Serial.print(F(SOUND_VOLUME_COMMAND)); Serial.print(F("0-30 : Sound Volume => ")); Serial.println(data.soundVolume);
             Serial.print(F(SOUND_INCREMENT_COMMAND)); Serial.print(F("0-999 : Sound Increment (ms) => ")); Serial.println(data.soundIncrementDuration);
+            Serial.print(F(SOUND_ADVANCE_COMMAND)); Serial.print(F("0-9999 : Sound Advance (ms) => ")); Serial.println(data.soundAdvance);
             Serial.print(F(TEST_SOUND_COMMAND)); Serial.print(F("1-99 : Sound Test")); Serial.println();
         #endif
         Serial.print(F(START_COMMAND)); Serial.print(F(" : Run")); Serial.println();
@@ -966,6 +1013,9 @@ void executeCommand(void) {
             saveSettings();
         } else if (isCommandValue(inputBuffer, (char*) SOUND_INCREMENT_COMMAND, 0, 999)) {
             data.soundIncrementDuration = commandValue;
+            saveSettings();
+        } else if (isCommandValue(inputBuffer, (char*) SOUND_ADVANCE_COMMAND, 0, 999)) {
+            data.soundAdvance = commandValue;
             saveSettings();
         } else if (isCommandValue(inputBuffer, (char*) TEST_SOUND_COMMAND, 1, 99)) {
             playSound(commandValue);
@@ -1239,13 +1289,13 @@ void loop(void){
     now = millis();                                                 // Refresh current time (to avoid side effects)
     // Are we at end of waiting after stop?
 
-    if (stateMachine == waitingAfterStop && ((now-waitAfterStopTimer) > data.waitAfterStop - 1000)) {
+    if (stateMachine == waitingAfterStop && ((now-waitAfterStopTimer) > data.waitAfterStop)) {
         #ifdef MP3_PIN
             if (!soundStarted) playSound(data.fillSound);
         #endif
     }
     // Are we at end of waiting after stop?
-    if (stateMachine == waitingAfterStop && ((now-waitAfterStopTimer) > data.waitAfterStop)) {
+    if (stateMachine == waitingAfterStop && ((now-waitAfterStopTimer) > data.waitAfterStop + data.soundAdvance)) {
         startFilling();
         stateMachine = waitFilled;
         waitFilledTimer = now;
