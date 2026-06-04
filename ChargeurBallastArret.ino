@@ -1,4 +1,4 @@
-#define CODE_VERSION "V26.5.21-1"
+#define CODE_VERSION "V26.6.4-1"
 
 #define VERSION_FRANCAISE
 
@@ -247,6 +247,8 @@ unsigned long relayPulseTimer = 0;                                  // Relay pul
     unsigned long soundChangeDuration = 0;                          // Duration of one sound change
     int8_t soundIncrement = 0;                                      // Sound increment (negative to decrement)
     uint8_t soundVolume = 0;                                        // Current sound volume
+    bool soundStarted = false;                                      // Sound already started
+    bool soundStopping = false;                                     // Sound already stopping
 #endif
 
 // Debouncer
@@ -515,7 +517,7 @@ void initSettings(void) {
     data.fillSound = 1;                                             // Fill sound index
     data.unloadSound = 2;                                           // Unload sound index
     data.soundVolume = 15;                                          // Sound volume
-    data.soundIncrementDuration = 500UL;                                    // Sound increment
+    data.soundIncrementDuration = 500UL;                            // Sound increment
 }
 
 // Reset serial input buffer
@@ -698,11 +700,11 @@ void startFilling(void) {
     }
     setRelay(CLOSE_RELAY, RELAY_OPENED);
     setRelay(OPEN_RELAY, RELAY_CLOSED);
+    #ifdef MP3_PIN
+        if (!soundStarted) playSound(data.fillSound);
+    #endif
     #ifdef VIBRATION_RELAY
         startVibration();
-    #endif
-    #ifdef MP3_PIN
-        playSound(data.fillSound);
     #endif
 }
 
@@ -829,7 +831,7 @@ void printHelp(void) {
         #endif
         Serial.print(F(START_COMMAND)); Serial.print(F(" : Marche")); Serial.println();
         Serial.print(F(STOP_COMMAND)); Serial.print(F(" : Arrêt")); Serial.println();
-        Serial.print(F(EMERGENCY_COMMAND)); Serial.print(F(" : arrêt d'Urgence")); Serial.println();
+        Serial.print(F(EMERGENCY_COMMAND)); Serial.print(F(" : Arrêt d'Urgence")); Serial.println();
         Serial.print(F(ILS_STATE_COMMAND)); Serial.print(F(" : Etat ILS")); Serial.println();
         Serial.print(F(OPEN_RELAY_COMMAND)); Serial.print(F(" : Ouverture trémie")); Serial.println();
         Serial.print(F(CLOSE_RELAY_COMMAND)); Serial.print(F(" : Fermeture trémie")); Serial.println();
@@ -1079,17 +1081,21 @@ void setRelay(uint8_t index, uint8_t state){
                 lastSoundChangeTime = 0;                            // Clear last volume set time
             }
             Serial.print("Play sound "); Serial.print(index); Serial.print(", volume "); Serial.println(soundVolume);
-            mp3Player.set_track_index(index);                       // Set track index to play
             mp3Player.set_volume(soundVolume);                      // Set volume
+            mp3Player.set_track_index(index);                       // Set track index to play
             mp3Player.play();                                       // Play track
+            soundStarted = true;                                    // We started sound
+            soundStopping = false;                                  // and not amynpre stopping it
         }
     }
 
     // Stop playing a sound
     void stopSound(void) {
+        if (soundStopping) return;
+        soundStopping = true;                                       // We're stopping sound
         if (data.soundVolume) {                                     // Only if volume set
             if (data.soundIncrementDuration && data.soundVolume > 1) {      // Sound increment and target volume > 1?
-                soundVolume -= 1;                                   // Start at volume - 1
+                if (soundVolume) soundVolume -= 1;                  // Start at volume - 1
                 soundIncrement = -1;                                // Decrease sound
                 soundChangeDuration = data.soundIncrementDuration / data.soundVolume; // Wait time between increments
                 lastSoundChangeTime = millis();                     // Set last volume change time
@@ -1104,7 +1110,6 @@ void setRelay(uint8_t index, uint8_t state){
                 lastSoundChangeTime = 0;                            // Clear last volume set time
             }
         }
-
     }
 
     // Set sound volume giving increase/decrease
@@ -1118,6 +1123,8 @@ void setRelay(uint8_t index, uint8_t state){
         mp3Player.set_volume(soundVolume);                          // Set new volume
         if (!soundVolume) {                                         // Volume = 0?
             mp3Player.stop();                                       // Stop player
+            soundStarted = false;                                   // Sound is not played anymore
+            soundStopping = false;                                  // Neither stopping
             lastSoundChangeTime = 0;                                // Reset last volume change time
         }
     }
@@ -1207,6 +1214,7 @@ void loop(void){
                                 stopTrain();                    // Stop train
                                 stateMachine = waitingAfterStop;// Set next step
                                 waitAfterStopTimer = millis();  // Set timer
+                                soundStarted = false;
                             } else {
                                 if (data.inDebug) {
                                     #ifdef VERSION_FRANCAISE
@@ -1229,6 +1237,13 @@ void loop(void){
     }
 
     now = millis();                                                 // Refresh current time (to avoid side effects)
+    // Are we at end of waiting after stop?
+
+    if (stateMachine == waitingAfterStop && ((now-waitAfterStopTimer) > data.waitAfterStop - 1000)) {
+        #ifdef MP3_PIN
+            if (!soundStarted) playSound(data.fillSound);
+        #endif
+    }
     // Are we at end of waiting after stop?
     if (stateMachine == waitingAfterStop && ((now-waitAfterStopTimer) > data.waitAfterStop)) {
         startFilling();
